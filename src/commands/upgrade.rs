@@ -573,7 +573,7 @@ fn handle_execute(args: ExecuteArgs) -> Result<()> {
     .add("Executor", &wallet.public_key)
     .add(
         "Approvals",
-        &format!("{}/{}", proposal.approvals.len(), proposal.threshold),
+        format!("{}/{}", proposal.approvals.len(), proposal.threshold),
     );
 
     let confirm_config = confirmation::ConfirmationConfig {

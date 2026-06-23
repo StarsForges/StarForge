@@ -136,14 +136,14 @@ pub fn handle(args: InvokeArgs) -> Result<()> {
         .add("Wallet", &args.wallet)
         .add(
             "Estimated Fee",
-            &format!("{} stroops", outcome.simulation.fee),
+            format!("{} stroops", outcome.simulation.fee),
         )
         .add("Return Value", &outcome.simulation.return_value);
 
         // Add arguments to summary if present
         if !arg_list.is_empty() {
             for (i, (arg, arg_type)) in arg_list.iter().zip(arg_type_list.iter()).enumerate() {
-                summary = summary.add(&format!("Arg [{}] {}", i, arg_type), arg);
+                summary = summary.add(format!("Arg [{}] {}", i, arg_type), arg);
             }
         }
 

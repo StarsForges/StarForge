@@ -1,10 +1,7 @@
 /// Integration tests for complete template marketplace workflows
 /// Tests end-to-end scenarios: publish → search → install
-
 #[cfg(test)]
 mod template_marketplace_workflow_tests {
-    use std::collections::HashMap;
-
     // Mock structures
     #[derive(Debug, Clone)]
     struct TemplateRegistry {
@@ -12,6 +9,7 @@ mod template_marketplace_workflow_tests {
     }
 
     #[derive(Debug, Clone)]
+    #[allow(dead_code)]
     struct TemplateEntry {
         name: String,
         version: String,
@@ -334,7 +332,7 @@ mod template_marketplace_workflow_tests {
     fn test_increment_download_count_on_install() {
         let mut registry = TemplateRegistry::new();
 
-        let mut template = TemplateEntry {
+        let template = TemplateEntry {
             name: "template".to_string(),
             version: "1.0.0".to_string(),
             description: "Template".to_string(),

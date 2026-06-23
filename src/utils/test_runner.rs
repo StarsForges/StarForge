@@ -112,7 +112,12 @@ pub fn run_contract_tests(wasm: &Path, opts: TestOptions) -> Result<TestRunResul
         .map(|fmt| format_report(&sha256, fmt, opts.coverage))
         .transpose()?;
 
-    let failures = fuzz_failures + if snapshot_status == SnapshotStatus::Mismatched { 1 } else { 0 };
+    let failures = fuzz_failures
+        + if snapshot_status == SnapshotStatus::Mismatched {
+            1
+        } else {
+            0
+        };
 
     Ok(TestRunResult {
         size_bytes: bytes.len(),
@@ -343,7 +348,10 @@ fn format_report(sha256: &str, format: &str, coverage: bool) -> Result<PathBuf> 
                 .with_context(|| format!("Failed to write {}", path.display()))?;
         }
         other => {
-            anyhow::bail!("Unsupported report format '{}'. Use 'html' or 'json'.", other);
+            anyhow::bail!(
+                "Unsupported report format '{}'. Use 'html' or 'json'.",
+                other
+            );
         }
     }
 

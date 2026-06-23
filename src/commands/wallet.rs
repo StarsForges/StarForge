@@ -1,7 +1,10 @@
+#![allow(clippy::items_after_test_module)]
+
 use crate::utils::{
     config, confirmation, crypto, hardware_wallet, horizon, mnemonic, multisig, print as p,
 };
 use anyhow::{Context, Result};
+use bip39::{Language, Mnemonic};
 use chrono::Utc;
 use clap::Subcommand;
 use colored::*;
@@ -251,6 +254,8 @@ pub enum WalletCommands {
         #[arg(long, value_enum)]
         hardware: Option<hardware_wallet::HardwareWalletKind>,
     },
+    /// Derive all 10 Stellar addresses (m/44'/148'/0..9') from a BIP39 recovery phrase
+    Derive,
     /// Multi-signature account management
     #[command(subcommand)]
     Multisig(MultisigCommands),
@@ -405,6 +410,7 @@ pub fn handle(cmd: WalletCommands) -> Result<()> {
             message,
             hardware,
         } => sign_message(name, message, hardware),
+        WalletCommands::Derive => derive_addresses(),
         WalletCommands::Multisig(cmd) => handle_multisig(cmd),
     }
 }
@@ -987,11 +993,11 @@ fn merge_wallet(
     .add("Destination", &destination)
     .add(
         "XLM to Transfer",
-        &format!("{:.7} XLM (minus fee)", xlm_balance),
+        format!("{:.7} XLM (minus fee)", xlm_balance),
     )
     .add(
         "Estimated Fee",
-        &format!("{:.7} XLM", tx_result.fee as f64 / 10_000_000.0),
+        format!("{:.7} XLM", tx_result.fee as f64 / 10_000_000.0),
     )
     .add("Remove Local", if remove_local { "Yes" } else { "No" });
 
@@ -1719,6 +1725,55 @@ mod tests {
         assert!(json.contains("previous_secret_key"));
         assert!(json.contains("SKEY"));
     }
+}
+
+fn derive_addresses() -> Result<()> {
+    p::header("Derive Stellar Addresses from Mnemonic");
+    p::info("Enter your BIP39 recovery phrase to derive all 10 Stellar addresses.");
+    println!();
+
+    let phrase = prompt_recovery_phrase()?;
+    let passphrase = "";
+
+    println!();
+    p::step(1, 2, "Validating recovery phrase…");
+    let normalized = phrase.split_whitespace().collect::<Vec<_>>().join(" ");
+    let _ = Mnemonic::parse_in(Language::English, normalized)
+        .map_err(|e| anyhow::anyhow!("Invalid recovery phrase: {}", e))?;
+    p::success("Recovery phrase is valid");
+
+    println!();
+    p::step(2, 2, "Deriving addresses for account indices 0-9…");
+    println!();
+    p::separator();
+
+    for account_index in 0..10 {
+        let result = mnemonic::keypair_from_phrase(&phrase, passphrase, account_index);
+
+        match result {
+            Ok((public_key, _)) => {
+                let derivation_path = format!("m/44'/148'/{}'", account_index);
+                p::kv(&format!("[{}]", account_index), &derivation_path);
+                p::kv_accent(&format!("    Address {}", account_index), &public_key);
+                println!();
+            }
+            Err(e) => {
+                p::warn(&format!(
+                    "Failed to derive account {}: {}",
+                    account_index, e
+                ));
+                println!();
+            }
+        }
+    }
+
+    p::separator();
+    p::info(
+        "These addresses are derived deterministically from your recovery phrase. \
+         Entering the same phrase will always produce the same addresses.",
+    );
+    p::warn("Do not share your recovery phrase with anyone. Anyone with it can access all these addresses.");
+    Ok(())
 }
 
 fn handle_multisig(cmd: MultisigCommands) -> Result<()> {

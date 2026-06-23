@@ -1,10 +1,7 @@
 /// Comprehensive test suite for template marketplace workflows
 /// Covers discovery, publishing, installation, and metadata handling
-
 #[cfg(test)]
 mod template_marketplace_tests {
-    use std::collections::HashMap;
-
     // Mock structures for testing
     #[derive(Debug, Clone, PartialEq)]
     enum TemplateSource {
@@ -22,6 +19,7 @@ mod template_marketplace_tests {
     }
 
     #[derive(Debug, Clone)]
+    #[allow(dead_code)]
     struct TemplateEntry {
         name: String,
         version: String,
@@ -62,7 +60,7 @@ mod template_marketplace_tests {
 
     #[test]
     fn test_search_by_exact_name_match() {
-        let templates = vec![
+        let templates = [
             TemplateEntry {
                 name: "uniswap-v2".to_string(),
                 version: "1.0.0".to_string(),
@@ -107,7 +105,7 @@ mod template_marketplace_tests {
 
     #[test]
     fn test_search_by_tag_filtering() {
-        let templates = vec![
+        let templates = [
             TemplateEntry {
                 name: "uniswap-v2".to_string(),
                 version: "1.0.0".to_string(),
@@ -141,7 +139,7 @@ mod template_marketplace_tests {
         ];
 
         // Filter by "dex" tag
-        let required_tags = vec!["dex".to_string()];
+        let required_tags = ["dex".to_string()];
         let results: Vec<_> = templates
             .iter()
             .filter(|t| {
@@ -157,7 +155,7 @@ mod template_marketplace_tests {
 
     #[test]
     fn test_search_by_multiple_tags() {
-        let templates = vec![TemplateEntry {
+        let templates = [TemplateEntry {
             name: "uniswap-v2".to_string(),
             version: "1.0.0".to_string(),
             description: "Uniswap V2 DEX".to_string(),
@@ -174,7 +172,7 @@ mod template_marketplace_tests {
         }];
 
         // Filter by multiple tags - template must have ALL
-        let required_tags = vec!["defi".to_string(), "dex".to_string()];
+        let required_tags = ["defi".to_string(), "dex".to_string()];
         let results: Vec<_> = templates
             .iter()
             .filter(|t| {
@@ -189,7 +187,7 @@ mod template_marketplace_tests {
 
     #[test]
     fn test_search_verified_only_filter() {
-        let templates = vec![
+        let templates = [
             TemplateEntry {
                 name: "verified-template".to_string(),
                 version: "1.0.0".to_string(),
@@ -234,7 +232,7 @@ mod template_marketplace_tests {
 
     #[test]
     fn test_search_quality_score_filtering() {
-        let templates = vec![
+        let templates = [
             TemplateEntry {
                 name: "high-quality".to_string(),
                 version: "1.0.0".to_string(),
@@ -279,7 +277,7 @@ mod template_marketplace_tests {
 
     #[test]
     fn test_search_empty_query_lists_all() {
-        let templates = vec![
+        let templates = [
             TemplateEntry {
                 name: "template1".to_string(),
                 version: "1.0.0".to_string(),
@@ -313,7 +311,7 @@ mod template_marketplace_tests {
         let query = "";
         let results: Vec<_> = templates
             .iter()
-            .filter(|_| query.trim().is_empty() || true) // Empty query matches all
+            .filter(|_| query.trim().is_empty()) // Empty query matches all
             .collect();
 
         assert_eq!(results.len(), 2);
@@ -694,7 +692,7 @@ pub struct {{PROJECT_NAME_PASCAL}} {
 
     #[test]
     fn test_installation_steps_order() {
-        let steps = vec!["Fetching template", "Validating structure", "Installing"];
+        let steps = ["Fetching template", "Validating structure", "Installing"];
 
         assert_eq!(steps[0], "Fetching template");
         assert_eq!(steps[1], "Validating structure");
@@ -728,7 +726,7 @@ pub struct {{PROJECT_NAME_PASCAL}} {
 
     #[test]
     fn test_search_with_special_characters_in_query() {
-        let templates = vec![TemplateEntry {
+        let templates = [TemplateEntry {
             name: "c++-template".to_string(),
             version: "1.0.0".to_string(),
             description: "C++ style template".to_string(),
@@ -754,7 +752,7 @@ pub struct {{PROJECT_NAME_PASCAL}} {
 
     #[test]
     fn test_search_case_insensitive() {
-        let templates = vec![TemplateEntry {
+        let templates = [TemplateEntry {
             name: "UniSwap-V2".to_string(),
             version: "1.0.0".to_string(),
             description: "DEX".to_string(),

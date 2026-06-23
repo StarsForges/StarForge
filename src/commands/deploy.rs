@@ -1,43 +1,3 @@
-use zeroize::{Zeroizing, Zeroize};
-use std::fs::File;
-use zeroize::{Zeroizing, Zeroize};
-use std::os::unix::fs::PermissionsExt;
-use std::io::Write;
-// Decrypt the key into a Zeroizing wrapper
-let decrypted_secret: Zeroizing<String> = decrypt_wallet_key(&wallet_name)?;
-
-// Create temp file for the secret with 600 permissions
-let mut temp_key_file = tempfile::NamedTempFile::new()?;
-std::fs::set_permissions(temp_key_file.path(), std::fs::Permissions::from_mode(0o600))?;
-write!(temp_key_file, "{}", *decrypted_secret)?;
-
-// Execute command securely
-let mut child = std::process::Command::new("stellar")
-    .args(["contract", "deploy", "--source-account", temp_key_file.path().to_str().unwrap()])
-    .env_clear() 
-    .spawn()?;
-
-child.wait()?;
-// Memory is automatically zeroed by Zeroizing<String> when it goes out of scope here
-use std::os::unix::fs::PermissionsExt;
-use std::io::Write;
-
-// Inside handle() function:
-let decrypted_secret: Zeroizing<String> = decrypt_wallet_key(&wallet_name)?;
-
-// Create temp file for the secret with 600 permissions
-let mut temp_key_file = tempfile::NamedTempFile::new()?;
-std::fs::set_permissions(temp_key_file.path(), std::fs::Permissions::from_mode(0o600))?;
-write!(temp_key_file, "{}", *decrypted_secret)?;
-
-// Execute command securely
-let mut child = std::process::Command::new("stellar")
-    .args(["contract", "deploy", "--source-account", temp_key_file.path().to_str().unwrap()])
-    .env_clear() // Prevents leakage of existing env vars
-    .spawn()?;
-
-child.wait()?;
-// Memory is automatically zeroed by Zeroizing<String> when scope ends
 use crate::utils::{config, confirmation, horizon, optimizer, print as p, soroban};
 use anyhow::Result;
 use clap::Args;
@@ -402,8 +362,8 @@ pub fn handle(args: DeployArgs) -> Result<()> {
         args.network.clone(),
         risk_level,
     )
-    .add("WASM file", &wasm_path.display().to_string())
-    .add("WASM size", &format!("{:.1} KB", wasm_size_kb))
+    .add("WASM file", wasm_path.display().to_string())
+    .add("WASM size", format!("{:.1} KB", wasm_size_kb))
     .add("WASM hash", &wasm_hash)
     .add("Wallet", &wallet.name)
     .add("Public Key", &wallet.public_key)

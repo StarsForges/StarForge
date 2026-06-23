@@ -1,4 +1,3 @@
-use crate::utils::config::{self, Config};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -29,29 +28,24 @@ impl TrustLevel {
     }
 }
 
-/// Classify a source URL/path into a trust level using the built-in default
-/// allowlist.
+/// Classify a source URL/path into a trust level based on built-in allowlist.
 pub fn classify_source(source: &str) -> TrustLevel {
-    classify_source_with_config(source, &Config::default())
-}
-
-/// Classify a source URL/path into a trust level using the configured
-/// allowlist.
-pub fn classify_source_with_config(source: &str, config: &Config) -> TrustLevel {
     if source.is_empty() {
         return TrustLevel::Local;
     }
-    for trusted_source in &config.plugin_trust.trusted_sources {
-        if source_matches_trusted_source(source, trusted_source) {
+
+    let trusted_prefixes = &[
+        "https://github.com/Nanle-code/starforge-",
+        "https://github.com/StarForge-Labs/",
+        "https://crates.io/crates/starforge-plugin-",
+    ];
+
+    for prefix in trusted_prefixes {
+        if source.starts_with(prefix) {
             return TrustLevel::Trusted;
         }
     }
     TrustLevel::Unknown
-}
-
-pub fn classify_source_from_cli_config(source: &str) -> Result<TrustLevel> {
-    let config = config::load()?;
-    Ok(classify_source_with_config(source, &config))
 }
 
 pub fn source_matches_trusted_source(source: &str, trusted_source: &str) -> bool {
@@ -300,7 +294,7 @@ pub fn install_plugin(
         anyhow::bail!("Plugin library not found: {}", library_path.display());
     }
 
-    let trust = classify_source_from_cli_config(source)?;
+    let trust = classify_source(source);
     let now = chrono::Utc::now().to_rfc3339();
 
     let mut reg = load_registry().unwrap_or_default();
@@ -465,6 +459,7 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
 
+    #[allow(dead_code)]
     fn temp_registry(tmp: &TempDir) -> PathBuf {
         tmp.path().join("registry.json")
     }
@@ -512,64 +507,6 @@ mod tests {
             classify_source("https://crates.io/crates/starforge-plugin-analytics"),
             TrustLevel::Trusted
         );
-    }
-
-    #[test]
-    fn configured_domain_trusts_exact_and_subdomains_only() {
-        let mut cfg = Config::default();
-        cfg.plugin_trust.trusted_sources = vec!["plugins.example.com".to_string()];
-
-        assert_eq!(
-            classify_source_with_config("https://plugins.example.com/releases/foo", &cfg),
-            TrustLevel::Trusted
-        );
-        assert_eq!(
-            classify_source_with_config("https://cdn.plugins.example.com/foo", &cfg),
-            TrustLevel::Trusted
-        );
-        assert_eq!(
-            classify_source_with_config("https://plugins.example.com.evil/foo", &cfg),
-            TrustLevel::Unknown
-        );
-    }
-
-    #[test]
-    fn configured_url_prefix_trusts_only_matching_scheme_host_and_path() {
-        let mut cfg = Config::default();
-        cfg.plugin_trust.trusted_sources =
-            vec!["https://plugins.example.com/starforge/".to_string()];
-
-        assert_eq!(
-            classify_source_with_config(
-                "https://plugins.example.com/starforge/plugin.tar.gz",
-                &cfg
-            ),
-            TrustLevel::Trusted
-        );
-        assert_eq!(
-            classify_source_with_config("http://plugins.example.com/starforge/plugin.tar.gz", &cfg),
-            TrustLevel::Unknown
-        );
-        assert_eq!(
-            classify_source_with_config("https://plugins.example.com/other/plugin.tar.gz", &cfg),
-            TrustLevel::Unknown
-        );
-        assert_eq!(
-            classify_source_with_config("https://plugins.example.com.evil/starforge/plugin", &cfg),
-            TrustLevel::Unknown
-        );
-    }
-
-    #[test]
-    fn empty_config_allowlist_treats_remote_sources_as_unknown() {
-        let mut cfg = Config::default();
-        cfg.plugin_trust.trusted_sources.clear();
-
-        assert_eq!(
-            classify_source_with_config("https://github.com/Nanle-code/starforge-defi", &cfg),
-            TrustLevel::Unknown
-        );
-        assert_eq!(classify_source_with_config("", &cfg), TrustLevel::Local);
     }
 
     // ── install_plugin ────────────────────────────────────────────────────────

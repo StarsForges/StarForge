@@ -14,7 +14,8 @@ fn no_sensitive_patterns_are_emitted_at_info_level() {
     ];
 
     for path in FILES_TO_AUDIT {
-        let contents = fs::read_to_string(path).expect(&format!("Failed to read {}", path));
+        let contents =
+            fs::read_to_string(path).unwrap_or_else(|_| panic!("Failed to read {}", path));
         for (prefix, sensitive) in patterns {
             for (index, line) in contents.lines().enumerate() {
                 if line.contains(prefix) && line.contains(sensitive) {

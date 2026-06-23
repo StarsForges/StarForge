@@ -137,8 +137,8 @@ fn test_hardware_wallet_api_consistency() {
         .output()
         .expect("Wallet import help should be available");
 
-    let wallet_help_text = String::from_utf8_lossy(&wallet_help.stdout);
-    let import_help_text = String::from_utf8_lossy(&import_help.stdout);
+    let _wallet_help_text = String::from_utf8_lossy(&wallet_help.stdout);
+    let _import_help_text = String::from_utf8_lossy(&import_help.stdout);
 
     assert!(
         wallet_help.status.success(),
@@ -194,21 +194,18 @@ fn test_hardware_wallet_timeout_behavior() {
         .arg("1s")
         .output();
 
-    match output {
-        Ok(output) => {
-            if !output.status.success() {
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                let combined = format!("{}{}", stderr, stdout);
+    if let Ok(output) = output {
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let combined = format!("{}{}", stderr, stdout);
 
-                assert!(
-                    combined.contains("timeout")
-                        || combined.contains("unavailable")
-                        || combined.contains("error"),
-                    "Timeout behavior should be clear and predictable"
-                );
-            }
+            assert!(
+                combined.contains("timeout")
+                    || combined.contains("unavailable")
+                    || combined.contains("error"),
+                "Timeout behavior should be clear and predictable"
+            );
         }
-        Err(_) => {}
     }
 }

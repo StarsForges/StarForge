@@ -469,11 +469,7 @@ pub fn fetch_template_cached(entry: &TemplateEntry, force_refresh: bool) -> Resu
                 if let Ok(modified) = metadata.modified() {
                     use std::time::{Duration, SystemTime};
                     let ttl = Duration::from_secs(24 * 60 * 60); // 24 hours TTL
-                    if SystemTime::now()
-                        .duration_since(modified)
-                        .unwrap_or_else(|_| ttl)
-                        >= ttl
-                    {
+                    if SystemTime::now().duration_since(modified).unwrap_or(ttl) >= ttl {
                         should_refresh = true;
                     }
                 }
@@ -506,7 +502,7 @@ pub fn fetch_template_cached(entry: &TemplateEntry, force_refresh: bool) -> Resu
                 }
             }
         } else {
-            return Ok(dest);
+            Ok(dest)
         }
     } else {
         fetch_template(entry, &dest)?;
@@ -553,11 +549,7 @@ pub fn load_registry() -> Result<TemplateRegistry> {
             if let Ok(modified) = metadata.modified() {
                 use std::time::{Duration, SystemTime};
                 let ttl = Duration::from_secs(24 * 60 * 60); // 24 hours
-                if SystemTime::now()
-                    .duration_since(modified)
-                    .unwrap_or_else(|_| ttl)
-                    < ttl
-                {
+                if SystemTime::now().duration_since(modified).unwrap_or(ttl) < ttl {
                     let contents = fs::read_to_string(&cache_path).with_context(|| {
                         format!("Failed to read cached registry at {}", cache_path.display())
                     })?;
@@ -1027,6 +1019,7 @@ pub fn publish_template(
 
 /// Like `publish_template` but also records optional CLI version constraints.
 /// Install a template from a directory or `.zip` archive into the local registry.
+#[allow(clippy::too_many_arguments)]
 pub fn install_template_package(
     package_path: &Path,
     name: String,
@@ -1053,6 +1046,7 @@ pub fn install_template_package(
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn publish_template_versioned(
     template_path: &Path,
     name: String,

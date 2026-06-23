@@ -298,6 +298,7 @@ fn argon2_from_params(params: &Params) -> Argon2<'_> {
     Argon2::from(params.clone())
 }
 
+#[allow(clippy::type_complexity)]
 fn parse_encrypted_bundle(bundle: &str) -> Result<(Vec<u8>, Vec<u8>, Vec<u8>, Option<KdfOptions>)> {
     let parts: Vec<&str> = bundle.split(':').collect();
     match parts.len() {

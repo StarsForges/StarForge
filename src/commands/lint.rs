@@ -4,7 +4,7 @@ use serde::Serialize;
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
-use wasmparser::{ImportSectionEntryType, Operator, Parser as WasmParser, Payload};
+use wasmparser::{Operator, Parser as WasmParser, Payload};
 
 #[derive(Parser)]
 pub struct LintArgs {
@@ -51,8 +51,8 @@ pub fn handle(args: LintArgs) -> Result<()> {
         bail!("File does not exist: {}", args.path.display());
     }
 
-    let bytes = fs::read(&args.path)
-        .with_context(|| format!("Failed to read {}", args.path.display()))?;
+    let bytes =
+        fs::read(&args.path).with_context(|| format!("Failed to read {}", args.path.display()))?;
 
     let wat = wasmprinter::print_bytes(&bytes)
         .with_context(|| format!("Failed to render WAT for {}", args.path.display()))?;
@@ -102,7 +102,11 @@ pub fn handle(args: LintArgs) -> Result<()> {
                 icon,
                 finding.check,
                 finding.message,
-                if finding.fix_available { " (fix available)" } else { "" }
+                if finding.fix_available {
+                    " (fix available)"
+                } else {
+                    ""
+                }
             );
         }
     }
@@ -124,28 +128,31 @@ pub fn handle(args: LintArgs) -> Result<()> {
 
 fn collect_imports(bytes: &[u8]) -> Result<ImportIndexMap> {
     let mut import_map = ImportIndexMap::default();
-    let mut parser = WasmParser::new(0);
+    let parser = WasmParser::new(0);
     for payload in parser.parse_all(bytes) {
         match payload? {
             Payload::ImportSection(section) => {
                 for import in section {
                     let import = import?;
-                    if let ImportSectionEntryType::Function(_) = import.ty {
-                        import_map.process_import(import.field.unwrap_or_default());
-                    }
+                    // Process all imports (functions are identified by their index in ImportIndexMap)
+                    import_map.process_import(import.name);
                 }
             }
-            Payload::End => break,
+            Payload::End(_) => break,
             _ => {}
         }
     }
     Ok(import_map)
 }
 
-fn analyze_ttl_expiry(bytes: &[u8], import_map: &ImportIndexMap, path: &Path) -> Result<Vec<LintFinding>> {
+fn analyze_ttl_expiry(
+    bytes: &[u8],
+    import_map: &ImportIndexMap,
+    path: &Path,
+) -> Result<Vec<LintFinding>> {
     let mut findings = Vec::new();
-    let mut parser = WasmParser::new(0);
-    let mut func_index = import_map.import_count as usize + 1;
+    let parser = WasmParser::new(0);
+    let mut func_index = import_map.import_count + 1;
 
     for payload in parser.parse_all(bytes) {
         match payload? {
@@ -168,6 +175,7 @@ fn analyze_ttl_expiry(bytes: &[u8], import_map: &ImportIndexMap, path: &Path) ->
                         }
                         Operator::Loop { .. } => loop_depth += 1,
                         Operator::Block { .. } | Operator::If { .. } => loop_depth += 1,
+                        #[allow(clippy::collapsible_match)]
                         Operator::End => {
                             if loop_depth > 0 {
                                 loop_depth -= 1;
@@ -199,7 +207,7 @@ fn analyze_ttl_expiry(bytes: &[u8], import_map: &ImportIndexMap, path: &Path) ->
                 }
                 func_index += 1;
             }
-            Payload::End => break,
+            Payload::End(_) => break,
             _ => {}
         }
     }
@@ -209,17 +217,17 @@ fn analyze_ttl_expiry(bytes: &[u8], import_map: &ImportIndexMap, path: &Path) ->
 fn analyze_persistent_storage_misuse(wat: &str, path: &Path) -> Result<Vec<LintFinding>> {
     let mut findings = Vec::new();
     for (line_num, line) in wat.lines().enumerate() {
-        if line.contains("Temporary") || line.contains("temporary") {
-            if line.contains("storage") || line.contains("Storage") || line.contains("map") {
-                findings.push(LintFinding {
-                    file: path.display().to_string(),
-                    line: line_num + 1,
-                    check: "temporary-storage-misuse".to_string(),
-                    message: "Temporary contract storage is in use. Consider whether the data should be stored in Persistent storage to avoid eviction or TTL expiry.".to_string(),
-                    severity: "warning".to_string(),
-                    fix_available: false,
-                });
-            }
+        if (line.contains("Temporary") || line.contains("temporary"))
+            && (line.contains("storage") || line.contains("Storage") || line.contains("map"))
+        {
+            findings.push(LintFinding {
+                file: path.display().to_string(),
+                line: line_num + 1,
+                check: "temporary-storage-misuse".to_string(),
+                message: "Temporary contract storage is in use. Consider whether the data should be stored in Persistent storage to avoid eviction or TTL expiry.".to_string(),
+                severity: "warning".to_string(),
+                fix_available: false,
+            });
         }
     }
     Ok(findings)
@@ -319,16 +327,18 @@ fn analyze_missing_auth(wat: &str, path: &Path) -> Result<Vec<LintFinding>> {
 fn analyze_budget(bytes: &[u8], path: &Path) -> Result<(BudgetReport, Vec<LintFinding>)> {
     let mut code_section_bytes = 0;
     let mut data_section_bytes = 0;
-    let mut parser = WasmParser::new(0);
+    let parser = WasmParser::new(0);
     for payload in parser.parse_all(bytes) {
         match payload? {
             Payload::CodeSectionEntry(body) => {
                 code_section_bytes += body.get_binary_reader().range().len();
             }
-            Payload::DataSectionEntry(data) => {
-                data_section_bytes += data.get_binary_reader().range().len();
+            Payload::DataSection(section) => {
+                for data in section.into_iter().flatten() {
+                    data_section_bytes += data.data.len();
+                }
             }
-            Payload::End => break,
+            Payload::End(_) => break,
             _ => {}
         }
     }
@@ -338,7 +348,9 @@ fn analyze_budget(bytes: &[u8], path: &Path) -> Result<(BudgetReport, Vec<LintFi
     let mut findings = Vec::new();
 
     if code_section_bytes > 250_000 {
-        warnings.push("Code section exceeds 250KB and may approach Soroban CPU budget limits.".to_string());
+        warnings.push(
+            "Code section exceeds 250KB and may approach Soroban CPU budget limits.".to_string(),
+        );
         findings.push(LintFinding {
             file: path.display().to_string(),
             line: 0,
@@ -360,12 +372,15 @@ fn analyze_budget(bytes: &[u8], path: &Path) -> Result<(BudgetReport, Vec<LintFi
         });
     }
     if total_size_bytes > 500_000 {
-        warnings.push("WASM file size exceeds 500KB. Consider optimizing and stripping symbols.".to_string());
+        warnings.push(
+            "WASM file size exceeds 500KB. Consider optimizing and stripping symbols.".to_string(),
+        );
         findings.push(LintFinding {
             file: path.display().to_string(),
             line: 0,
             check: "budget-total-size".to_string(),
-            message: "Large wasm artifacts can increase deployment and execution costs.".to_string(),
+            message: "Large wasm artifacts can increase deployment and execution costs."
+                .to_string(),
             severity: "warning".to_string(),
             fix_available: false,
         });
@@ -415,7 +430,10 @@ fn apply_safe_fixes(wat: &str, import_map: &ImportIndexMap, path: &Path) -> Resu
     let fixed_bytes = wat::parse_str(&fixed_wat)
         .with_context(|| "Failed to compile fixed WAT to Wasm; skipping automated fixes")?;
     let mut output_path = path.to_path_buf();
-    output_path.set_file_name(format!("{}.fixed.wasm", path.file_stem().unwrap().to_string_lossy()));
+    output_path.set_file_name(format!(
+        "{}.fixed.wasm",
+        path.file_stem().unwrap().to_string_lossy()
+    ));
     fs::write(&output_path, fixed_bytes)
         .with_context(|| format!("Failed to write fixed wasm to {}", output_path.display()))?;
 
@@ -509,15 +527,24 @@ impl ImportIndexMap {
         if self.extend_ttl_indices.is_empty() {
             Vec::new()
         } else {
-            vec!["storage_extend_ttl".to_string(), "storage.extend_ttl".to_string(), "extend_ttl".to_string()]
+            vec![
+                "storage_extend_ttl".to_string(),
+                "storage.extend_ttl".to_string(),
+                "extend_ttl".to_string(),
+            ]
         }
     }
 }
 
 fn is_storage_get_name(field: &str) -> bool {
-    field.contains("storage_get") || field.contains("storage.get") || field.contains("map_get") || field.contains("map.get")
+    field.contains("storage_get")
+        || field.contains("storage.get")
+        || field.contains("map_get")
+        || field.contains("map.get")
 }
 
 fn is_storage_extend_ttl_name(field: &str) -> bool {
-    field.contains("extend_ttl") || field.contains("storage.extend_ttl") || field.contains("storage_extend_ttl")
+    field.contains("extend_ttl")
+        || field.contains("storage.extend_ttl")
+        || field.contains("storage_extend_ttl")
 }

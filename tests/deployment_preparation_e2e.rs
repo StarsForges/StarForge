@@ -1,12 +1,11 @@
 /// End-to-end tests for deployment preparation
 /// Tests WASM validation, wallet resolution, account checks, and deployment planning
-
 #[cfg(test)]
 mod deployment_preparation_tests {
-    use std::collections::HashMap;
 
     // Mock structures
     #[derive(Debug, Clone)]
+    #[allow(dead_code)]
     struct WalletEntry {
         name: String,
         public_key: String,
@@ -29,6 +28,7 @@ mod deployment_preparation_tests {
     }
 
     #[derive(Debug, Clone)]
+    #[allow(dead_code)]
     struct DeploymentPlan {
         wasm_path: String,
         wasm_hash: String,

@@ -1,10 +1,7 @@
 /// Integration tests for wallet encryption and KDF functionality
 /// Tests the complete flow of encrypted wallet creation, rotation, and secret handling
-
 #[cfg(test)]
 mod wallet_encryption_tests {
-    use std::fs;
-    use std::path::PathBuf;
 
     // Mock structures for testing (in real scenario, these would be imported from the crate)
     #[derive(Debug, Clone)]
@@ -162,6 +159,7 @@ mod wallet_encryption_tests {
     #[test]
     fn test_wallet_rotation_history() {
         #[derive(Debug, Clone)]
+        #[allow(dead_code)]
         struct WalletRotationRecord {
             rotated_at: String,
             previous_public_key: String,

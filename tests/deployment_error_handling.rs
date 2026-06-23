@@ -1,12 +1,12 @@
 /// Error handling and edge case tests for deployment preparation
 /// Tests failure scenarios, invalid inputs, and error recovery
-
 #[cfg(test)]
 mod deployment_error_handling_tests {
     const VALID_PUBLIC_KEY: &str = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 
     // Mock structures
     #[derive(Debug, Clone)]
+    #[allow(dead_code)]
     struct WalletEntry {
         name: String,
         public_key: String,
@@ -14,6 +14,7 @@ mod deployment_error_handling_tests {
     }
 
     #[derive(Debug, Clone)]
+    #[allow(dead_code)]
     struct WasmFile {
         path: String,
         size_bytes: usize,

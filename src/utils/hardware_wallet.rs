@@ -5,14 +5,22 @@ use clap::ValueEnum;
 /// Default: m/44'/148'/0' (account index 0).
 pub const STELLAR_HD_PATH: &str = "m/44'/148'/0'";
 
+#[allow(dead_code)]
 const LEDGER_VENDOR_ID: u16 = 0x2c97;
+#[allow(dead_code)]
 const HID_PACKET_SIZE: usize = 64;
+#[allow(dead_code)]
 const HID_CHANNEL: u16 = 0x0101;
+#[allow(dead_code)]
 const HID_TAG_APDU: u8 = 0x05;
+#[allow(dead_code)]
 const SW_OK: [u8; 2] = [0x90, 0x00];
 
+#[allow(dead_code)]
 const CLA_STELLAR: u8 = 0xE0;
+#[allow(dead_code)]
 const INS_GET_PUBLIC_KEY: u8 = 0x02;
+#[allow(dead_code)]
 const INS_SIGN_TX: u8 = 0x04;
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -114,6 +122,7 @@ pub fn sign(kind: HardwareWalletKind, message: &[u8]) -> Result<Vec<u8>> {
     }
 }
 
+#[allow(dead_code)]
 fn parse_hd_path(path: &str) -> Result<Vec<u32>> {
     let cleaned = path.trim();
     let segments = cleaned
@@ -148,6 +157,7 @@ fn parse_hd_path(path: &str) -> Result<Vec<u32>> {
     Ok(values)
 }
 
+#[allow(dead_code)]
 fn encode_hd_path(path: &str) -> Result<Vec<u8>> {
     let indices = parse_hd_path(path)?;
     let mut out = Vec::with_capacity(1 + indices.len() * 4);
@@ -158,6 +168,7 @@ fn encode_hd_path(path: &str) -> Result<Vec<u8>> {
     Ok(out)
 }
 
+#[allow(dead_code)]
 fn build_apdu(cla: u8, ins: u8, p1: u8, p2: u8, data: &[u8]) -> Vec<u8> {
     let mut apdu = Vec::with_capacity(5 + data.len());
     apdu.push(cla);
@@ -169,6 +180,7 @@ fn build_apdu(cla: u8, ins: u8, p1: u8, p2: u8, data: &[u8]) -> Vec<u8> {
     apdu
 }
 
+#[allow(dead_code)]
 fn frame_apdu_for_hid(apdu: &[u8]) -> Vec<[u8; HID_PACKET_SIZE]> {
     let mut framed = Vec::new();
     let mut remaining = apdu;
@@ -408,6 +420,7 @@ impl TrezorTransport {
     }
 }
 
+#[allow(dead_code)]
 fn extract_public_key_bytes(response: &[u8]) -> Result<[u8; 32]> {
     if response.len() >= 32 {
         let mut bytes = [0u8; 32];
@@ -417,6 +430,7 @@ fn extract_public_key_bytes(response: &[u8]) -> Result<[u8; 32]> {
     anyhow::bail!("Ledger public-key response was too short")
 }
 
+#[allow(dead_code)]
 fn extract_signature_bytes(response: &[u8]) -> Result<Vec<u8>> {
     if response.len() >= 64 {
         return Ok(response[..64].to_vec());

@@ -1,6 +1,5 @@
 use std::fs;
 use std::path::PathBuf;
-use tempfile::TempDir;
 
 // Note: These are integration-style tests that would normally be in tests/
 // For now, we'll create a basic structure to demonstrate the testing approach

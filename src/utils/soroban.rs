@@ -865,12 +865,12 @@ mod tests {
     fn encode_invalid_int_errors() {
         let err =
             encode_arguments(&["not_a_number".to_string()], &["int".to_string()]).unwrap_err();
-        assert!(err.to_string().len() > 0);
+        assert!(!err.to_string().is_empty());
     }
 
     #[test]
     fn encode_invalid_bool_errors() {
         let err = encode_arguments(&["maybe".to_string()], &["bool".to_string()]).unwrap_err();
-        assert!(err.to_string().len() > 0);
+        assert!(!err.to_string().is_empty());
     }
 }

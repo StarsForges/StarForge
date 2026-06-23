@@ -114,8 +114,8 @@ pub fn validate_secret_key(secret: &str) -> Result<()> {
         }
 
         // Validate base64 parts (first 3 parts are always base64)
-        for i in 0..3 {
-            BASE64.decode(parts[i]).map_err(|_| {
+        for (i, part) in parts.iter().enumerate().take(3) {
+            BASE64.decode(part).map_err(|_| {
                 anyhow::anyhow!("Invalid base64 in encrypted secret bundle at part {}", i)
             })?;
         }
@@ -614,6 +614,7 @@ pub fn apply_migration() -> Result<Option<MigrationOutcome>> {
     Ok(Some(outcome))
 }
 
+#[allow(clippy::items_after_test_module)]
 #[cfg(test)]
 mod tests {
     use super::*;

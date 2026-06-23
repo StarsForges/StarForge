@@ -277,7 +277,7 @@ fn bench_basic(c: &mut Criterion) {
         b.iter(|| {
             let mut acc: u64 = 0;
             for i in 0..10_000u64 {
-                acc = acc.wrapping_add((i & 0xff) as u64);
+                acc = acc.wrapping_add(i & 0xff);
             }
             black_box(acc);
         })

@@ -1,9 +1,7 @@
 /// End-to-end tests for wallet lifecycle commands
 /// Tests real wallet operations: create, list, show, fund, remove, rotate
-
 #[cfg(test)]
 mod wallet_lifecycle_e2e_tests {
-    use std::collections::HashMap;
 
     // Mock structures for testing
     #[derive(Debug, Clone, PartialEq)]
