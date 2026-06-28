@@ -5,7 +5,11 @@ use argon2::{Argon2, Params};
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use colored::Colorize;
 use dialoguer::Password;
+use hmac::{Hmac, Mac};
 use rand::RngCore;
+use serde::{Deserialize, Serialize};
+use sha2::Sha256;
+use uuid::Uuid;
 use zxcvbn::zxcvbn;
 
 // ── Passphrase strength ───────────────────────────────────────────────────────
@@ -435,6 +439,148 @@ pub fn decrypt_secret(password: &str, bundle: &str) -> Result<String> {
         .map_err(|_| anyhow!("Decryption failed (incorrect password or corrupted data)"))?;
 
     String::from_utf8(decrypted).map_err(|e| anyhow!("Invalid UTF-8 in decrypted secret: {}", e))
+}
+
+// ── Backup envelope (v2) ──────────────────────────────────────────────────────
+
+/// Serialised form of a v2 encrypted backup file.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct EncryptedBackupEnvelope {
+    /// Always "2" for this format.
+    pub version: String,
+    /// UUIDv4 that uniquely identifies this backup.
+    pub backup_id: String,
+    /// AES-256-GCM ciphertext of the JSON payload, base64-encoded.
+    pub encrypted_payload: String,
+    /// Argon2 parameters used to derive the encryption key.
+    pub kdf_params: BackupKdfParams,
+    /// HMAC-SHA256 over `encrypted_payload` (base64 of the raw HMAC bytes),
+    /// keyed with the same derived key — detects tampering.
+    pub hmac: String,
+}
+
+/// KDF parameters stored inside the backup envelope.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BackupKdfParams {
+    pub salt: String,
+    pub mem: u32,
+    pub iterations: u32,
+    pub parallelism: u32,
+}
+
+/// Encrypt an arbitrary JSON string into a v2 backup envelope.
+///
+/// The passphrase is run through Argon2id → 32-byte key.
+/// The key is used for both AES-256-GCM encryption and HMAC-SHA256 integrity.
+pub fn encrypt_backup(passphrase: &str, json: &str, kdf: Option<&KdfOptions>) -> Result<String> {
+    // Random 16-byte salt
+    let mut salt = [0u8; 16];
+    rand::thread_rng().fill_bytes(&mut salt);
+
+    // Derive key
+    let params = resolve_params(kdf)?;
+    let argon2 = argon2_from_params(&params);
+    let mut key = [0u8; 32];
+    argon2
+        .hash_password_into(passphrase.as_bytes(), &salt, &mut key)
+        .map_err(|e| anyhow!("Key derivation failed: {}", e))?;
+
+    // AES-256-GCM encrypt
+    let cipher = Aes256Gcm::new(&key.into());
+    let mut nonce_bytes = [0u8; 12];
+    rand::thread_rng().fill_bytes(&mut nonce_bytes);
+    let nonce = Nonce::from_slice(&nonce_bytes);
+
+    // Prepend nonce to ciphertext so we can recover it on decrypt
+    let raw_ct = cipher
+        .encrypt(nonce, json.as_bytes())
+        .map_err(|e| anyhow!("Encryption failed: {}", e))?;
+
+    let mut payload_bytes = Vec::with_capacity(12 + raw_ct.len());
+    payload_bytes.extend_from_slice(&nonce_bytes);
+    payload_bytes.extend_from_slice(&raw_ct);
+
+    let encrypted_payload = BASE64.encode(&payload_bytes);
+
+    // HMAC-SHA256 over the base64 payload
+    let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(&key)
+        .map_err(|e| anyhow!("HMAC init failed: {}", e))?;
+    mac.update(encrypted_payload.as_bytes());
+    let hmac_bytes = mac.finalize().into_bytes();
+    let hmac = BASE64.encode(hmac_bytes);
+
+    let envelope = EncryptedBackupEnvelope {
+        version: "2".to_string(),
+        backup_id: Uuid::new_v4().to_string(),
+        encrypted_payload,
+        kdf_params: BackupKdfParams {
+            salt: BASE64.encode(salt),
+            mem: params.m_cost(),
+            iterations: params.t_cost(),
+            parallelism: params.p_cost(),
+        },
+        hmac,
+    };
+
+    serde_json::to_string_pretty(&envelope)
+        .map_err(|e| anyhow!("Failed to serialise envelope: {}", e))
+}
+
+/// Decrypt a v2 backup envelope, verifying the HMAC before decryption.
+pub fn decrypt_backup(passphrase: &str, envelope_json: &str) -> Result<String> {
+    let envelope: EncryptedBackupEnvelope = serde_json::from_str(envelope_json)
+        .map_err(|e| anyhow!("Failed to parse backup envelope: {}", e))?;
+
+    if envelope.version != "2" {
+        anyhow::bail!(
+            "Unsupported backup envelope version '{}' (expected '2')",
+            envelope.version
+        );
+    }
+
+    // Re-derive the key
+    let salt = BASE64
+        .decode(&envelope.kdf_params.salt)
+        .map_err(|_| anyhow!("Corrupt backup: invalid salt encoding"))?;
+    let kdf = KdfOptions {
+        mem: Some(envelope.kdf_params.mem),
+        iterations: Some(envelope.kdf_params.iterations),
+        parallelism: Some(envelope.kdf_params.parallelism),
+    };
+    let params = resolve_params(Some(&kdf))?;
+    let argon2 = argon2_from_params(&params);
+    let mut key = [0u8; 32];
+    argon2
+        .hash_password_into(passphrase.as_bytes(), &salt, &mut key)
+        .map_err(|e| anyhow!("Key derivation failed: {}", e))?;
+
+    // Verify HMAC before touching the ciphertext
+    let expected_hmac = BASE64
+        .decode(&envelope.hmac)
+        .map_err(|_| anyhow!("Corrupt backup: invalid HMAC encoding"))?;
+    let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(&key)
+        .map_err(|e| anyhow!("HMAC init failed: {}", e))?;
+    mac.update(envelope.encrypted_payload.as_bytes());
+    mac.verify_slice(&expected_hmac).map_err(|_| {
+        anyhow!("Backup integrity check failed: the file may have been tampered with")
+    })?;
+
+    // Decode and decrypt
+    let payload_bytes = BASE64
+        .decode(&envelope.encrypted_payload)
+        .map_err(|_| anyhow!("Corrupt backup: invalid payload encoding"))?;
+
+    if payload_bytes.len() < 12 {
+        anyhow::bail!("Corrupt backup: payload too short");
+    }
+    let (nonce_bytes, ct) = payload_bytes.split_at(12);
+    let cipher = Aes256Gcm::new(&key.into());
+    let nonce = Nonce::from_slice(nonce_bytes);
+    let plaintext = cipher
+        .decrypt(nonce, ct)
+        .map_err(|_| anyhow!("Decryption failed (incorrect passphrase or corrupted data)"))?;
+
+    String::from_utf8(plaintext).map_err(|e| anyhow!("Invalid UTF-8 in decrypted backup: {}", e))
 }
 
 #[cfg(test)]
