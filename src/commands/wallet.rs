@@ -16,7 +16,7 @@ use std::fs;
 use std::path::PathBuf;
 use stellar_strkey::ed25519::{PrivateKey as StellarPrivateKey, PublicKey as StellarPublicKey};
 
-const WALLET_BACKUP_VERSION: &str = "1";
+const WALLET_BACKUP_VERSION: &str = "2";
 
 fn kdf_options(
     mem: Option<u32>,
@@ -179,7 +179,7 @@ pub enum WalletCommands {
         #[arg(long)]
         backup: Option<PathBuf>,
     },
-    /// Export a wallet to a JSON backup file
+    /// Export a wallet to an encrypted JSON backup file
     Export {
         /// Optional wallet name to export (omit with --all)
         #[arg(long, conflicts_with = "all")]
@@ -187,12 +187,12 @@ pub enum WalletCommands {
         /// Export all wallets
         #[arg(long, short, conflicts_with = "name")]
         all: bool,
-        /// Output file path for the backup JSON
+        /// Output file path for the backup
         #[arg(long)]
         output: PathBuf,
-        /// Reject passphrases that score below "Strong" or reuse wallet details
+        /// Allow passphrases weaker than "Strong" (not recommended)
         #[arg(long, default_value = "false")]
-        strict: bool,
+        no_strict: bool,
     },
     /// Import a wallet from a JSON backup, BIP39 recovery phrase, or raw Stellar secret key
     Import {
@@ -381,8 +381,8 @@ pub fn handle(cmd: WalletCommands) -> Result<()> {
             name,
             all,
             output,
-            strict,
-        } => export_wallet(name, all, output, strict),
+            no_strict,
+        } => export_wallet(name, all, output, !no_strict),
         WalletCommands::Import {
             name,
             file,
@@ -1312,6 +1312,21 @@ fn wallet_history(name: String, reveal: bool) -> Result<()> {
     Ok(())
 }
 
+/// Emit a warning if the path looks like it's on a network-mounted filesystem.
+/// On Linux we check the /net, /mnt, /media, /run/media, /nfs prefixes as a heuristic.
+fn warn_if_network_path(path: &std::path::Path) {
+    let path_str = path.to_string_lossy();
+    let network_prefixes = ["/net/", "/nfs/", "/mnt/nfs", "/mnt/smb", "/run/media/"];
+    if network_prefixes.iter().any(|p| path_str.starts_with(p)) {
+        eprintln!(
+            "{}",
+            "⚠  Warning: the output path appears to be on a network-mounted filesystem. \
+             Encrypted backup files written to network shares may be accessible to others on that network."
+                .yellow()
+        );
+    }
+}
+
 fn export_wallet(name_opt: Option<String>, all: bool, output: PathBuf, strict: bool) -> Result<()> {
     let cfg = config::load()?;
     let wallets_to_export: Vec<WalletBackupEntry> = if all {
@@ -1342,6 +1357,9 @@ fn export_wallet(name_opt: Option<String>, all: bool, output: PathBuf, strict: b
         }
     }
 
+    // Warn if the output path appears to be on a network-mounted filesystem.
+    warn_if_network_path(&output);
+
     let backup = WalletBackup {
         version: WALLET_BACKUP_VERSION.to_string(),
         exported_at: Utc::now().to_rfc3339(),
@@ -1362,13 +1380,25 @@ fn export_wallet(name_opt: Option<String>, all: bool, output: PathBuf, strict: b
 
     let json = serde_json::to_string_pretty(&backup)
         .with_context(|| "Failed to serialize wallet backup")?;
+
+    // Always encrypt the backup, regardless of individual wallet encryption state.
+    // strict=true by default; pass --no-strict to relax strength requirements.
+    if strict {
+        p::info(&format!(
+            "Strict mode active: passphrase must be {} characters or longer \
+             and score \"{}\" or better.",
+            crypto::MIN_PASSPHRASE_LEN,
+            "Strong"
+        ));
+        println!();
+    }
     let passphrase = crypto::prompt_passphrase_with_inputs(
-        "Enter passphrase to encrypt backup",
+        "Enter backup passphrase (used to encrypt this file)",
         strict,
         &context,
     )?;
-    let encrypted = crypto::encrypt_secret(&passphrase, &json, None)?;
-    fs::write(&output, encrypted)
+    let envelope = crypto::encrypt_backup(&passphrase, &json, None)?;
+    fs::write(&output, &envelope)
         .with_context(|| format!("Failed to write {}", output.display()))?;
 
     let name_display = if all {
@@ -1376,9 +1406,9 @@ fn export_wallet(name_opt: Option<String>, all: bool, output: PathBuf, strict: b
     } else {
         name_opt.clone().unwrap()
     };
-    p::success(&format!("Wallet(s) {} exported", name_display));
+    p::success(&format!("Wallet(s) {} exported (encrypted)", name_display));
     p::kv("Backup file", &output.display().to_string());
-    p::info("Secrets are only stored in the backup file; they are not printed to stdout.");
+    p::info("The backup file is encrypted with AES-256-GCM. Keep your passphrase safe — it cannot be recovered.");
     Ok(())
 }
 
@@ -1533,19 +1563,52 @@ fn import_wallets(file: PathBuf) -> Result<()> {
     config::validate_file_path(&file, Some("json"))?;
     let raw_contents =
         fs::read_to_string(&file).with_context(|| format!("Failed to read {}", file.display()))?;
-    // Detect encrypted format (salt:nonce:ciphertext)
-    let contents = if raw_contents.matches(':').count() == 2 {
+
+    // Detect backup format:
+    //   v2 envelope  — JSON object with "version": "2" and "encrypted_payload"
+    //   v1 encrypted — legacy colon-separated bundle (3 or 6 parts)
+    //   v1 plaintext — raw JSON (deprecated, no encryption)
+    let contents = if let Ok(envelope) =
+        serde_json::from_str::<serde_json::Value>(&raw_contents)
+    {
+        if envelope.get("version").and_then(|v| v.as_str()) == Some("2")
+            && envelope.get("encrypted_payload").is_some()
+        {
+            // v2 encrypted envelope
+            let passphrase =
+                crypto::prompt_password("Enter backup passphrase", false)?;
+            crypto::decrypt_backup(&passphrase, &raw_contents)?
+        } else {
+            // Looks like a plain JSON object — could be v1 plaintext backup
+            eprintln!(
+                "{}",
+                "⚠  Deprecation warning: this backup file is not encrypted (v1 format). \
+                 Please re-export your wallets with the current version to create a secure backup."
+                    .yellow()
+            );
+            raw_contents
+        }
+    } else if raw_contents.matches(':').count() >= 2 {
+        // Legacy v1 colon-separated encrypted bundle
+        eprintln!(
+            "{}",
+            "⚠  Deprecation warning: this backup uses the legacy encryption format (v1). \
+             Please re-export your wallets to upgrade to the secure v2 format."
+                .yellow()
+        );
         let passphrase = crypto::prompt_password("Enter passphrase to decrypt backup", false)?;
         crypto::decrypt_secret(&passphrase, &raw_contents)?
     } else {
         raw_contents
     };
+
     let backup: WalletBackup =
         serde_json::from_str(&contents).with_context(|| "Invalid backup JSON format")?;
 
-    if backup.version != WALLET_BACKUP_VERSION {
+    // Accept v1 backups (with deprecation warning already shown above) and the current v2.
+    if backup.version != WALLET_BACKUP_VERSION && backup.version != "1" {
         anyhow::bail!(
-            "Unsupported backup version '{}'. Expected '{}'.",
+            "Unsupported backup version '{}'. Expected '{}' or '1'.",
             backup.version,
             WALLET_BACKUP_VERSION
         );
