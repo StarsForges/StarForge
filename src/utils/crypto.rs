@@ -522,7 +522,8 @@ pub fn encrypt_backup(passphrase: &str, json: &str, kdf: Option<&KdfOptions>) ->
         hmac,
     };
 
-    serde_json::to_string_pretty(&envelope).map_err(|e| anyhow!("Failed to serialise envelope: {}", e))
+    serde_json::to_string_pretty(&envelope)
+        .map_err(|e| anyhow!("Failed to serialise envelope: {}", e))
 }
 
 /// Decrypt a v2 backup envelope, verifying the HMAC before decryption.
@@ -560,8 +561,9 @@ pub fn decrypt_backup(passphrase: &str, envelope_json: &str) -> Result<String> {
     let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(&key)
         .map_err(|e| anyhow!("HMAC init failed: {}", e))?;
     mac.update(envelope.encrypted_payload.as_bytes());
-    mac.verify_slice(&expected_hmac)
-        .map_err(|_| anyhow!("Backup integrity check failed: the file may have been tampered with"))?;
+    mac.verify_slice(&expected_hmac).map_err(|_| {
+        anyhow!("Backup integrity check failed: the file may have been tampered with")
+    })?;
 
     // Decode and decrypt
     let payload_bytes = BASE64

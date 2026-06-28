@@ -1568,15 +1568,12 @@ fn import_wallets(file: PathBuf) -> Result<()> {
     //   v2 envelope  — JSON object with "version": "2" and "encrypted_payload"
     //   v1 encrypted — legacy colon-separated bundle (3 or 6 parts)
     //   v1 plaintext — raw JSON (deprecated, no encryption)
-    let contents = if let Ok(envelope) =
-        serde_json::from_str::<serde_json::Value>(&raw_contents)
-    {
+    let contents = if let Ok(envelope) = serde_json::from_str::<serde_json::Value>(&raw_contents) {
         if envelope.get("version").and_then(|v| v.as_str()) == Some("2")
             && envelope.get("encrypted_payload").is_some()
         {
             // v2 encrypted envelope
-            let passphrase =
-                crypto::prompt_password("Enter backup passphrase", false)?;
+            let passphrase = crypto::prompt_password("Enter backup passphrase", false)?;
             crypto::decrypt_backup(&passphrase, &raw_contents)?
         } else {
             // Looks like a plain JSON object — could be v1 plaintext backup
