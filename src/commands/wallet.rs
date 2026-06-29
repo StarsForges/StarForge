@@ -279,20 +279,23 @@ pub enum MultisigCommands {
         /// Override network for this config
         #[arg(long)]
         network: Option<String>,
-        /// Optional file path to write a setup transaction JSON/XDR payload
-        #[arg(long)]
+        /// Optional file path to write the unsigned setup transaction XDR
+        #[arg(long = "xdr", alias = "xdr-output", value_name = "PATH")]
         xdr_output: Option<PathBuf>,
     },
-    /// Sign a multi-sig transaction JSON with all available local signer keys
+    /// Sign a multi-sig transaction envelope XDR with all available local signer keys
     ///
     /// Example:
-    /// starforge wallet multisig sign treasury --transaction tx.json
+    /// starforge wallet multisig sign treasury --transaction tx.xdr --network testnet
     Sign {
         /// Multi-sig account name (created via `multisig create`)
         name: String,
-        /// Path to a MultiSigTransaction JSON file
+        /// Path to a base64 TransactionEnvelope XDR file
         #[arg(long)]
         transaction: PathBuf,
+        /// Network passphrase to sign for
+        #[arg(long, value_parser = ["testnet", "mainnet", "docker-testnet"])]
+        network: Option<String>,
         /// Output file (defaults to in-place update)
         #[arg(long)]
         output: Option<PathBuf>,
@@ -301,14 +304,14 @@ pub enum MultisigCommands {
     List,
     /// Show a stored multi-sig account
     Show { name: String },
-    /// Submit a fully-signed multi-sig transaction to Horizon
+    /// Submit a fully-signed multi-sig transaction envelope XDR to Horizon
     ///
     /// Example:
-    /// starforge wallet multisig submit treasury --transaction tx.json
+    /// starforge wallet multisig submit treasury --transaction tx.xdr
     Submit {
         /// Multi-sig account name
         name: String,
-        /// Path to a signed MultiSigTransaction JSON file
+        /// Path to a signed base64 TransactionEnvelope XDR file
         #[arg(long)]
         transaction: PathBuf,
         /// Network to submit on (default: testnet)
@@ -1848,8 +1851,9 @@ fn handle_multisig(cmd: MultisigCommands) -> Result<()> {
         MultisigCommands::Sign {
             name,
             transaction,
+            network,
             output,
-        } => multisig_sign(name, transaction, output),
+        } => multisig_sign(name, transaction, network, output),
         MultisigCommands::List => multisig_list(),
         MultisigCommands::Show { name } => multisig_show(name),
         MultisigCommands::Submit {
@@ -1936,9 +1940,20 @@ fn multisig_create(
     p::kv("Threshold", &threshold.to_string());
     p::kv("Signers", &account.signers.len().to_string());
     if let Some(path) = xdr_output {
-        let setup_tx = multisig::build_account_setup_transaction(&account, &network)?;
-        multisig::save_transaction(&path, &setup_tx)?;
-        p::kv("Setup XDR JSON", &path.display().to_string());
+        p::step(1, 2, "Fetching source account sequence...");
+        let source_account = horizon::fetch_account(&account.account_id, &network).map_err(|e| {
+            anyhow::anyhow!(
+                "Multi-sig account not found on {}: {}\nFund it with: starforge wallet fund {}",
+                network,
+                e,
+                account.name
+            )
+        })?;
+        p::step(2, 2, "Building unsigned SetOptions transaction XDR...");
+        let setup_xdr =
+            multisig::build_account_setup_transaction_xdr(&account, &source_account.sequence)?;
+        multisig::save_transaction_xdr(&path, &setup_xdr)?;
+        p::kv("Unsigned setup XDR", &path.display().to_string());
     }
     println!();
     p::info("Next steps to configure the account on-chain:");
@@ -1951,26 +1966,51 @@ fn multisig_create(
     println!(
         "  {}",
         format!(
-            "starforge wallet multisig sign {} --transaction tx.json",
-            account.name
+            "starforge wallet multisig sign {} --transaction tx.xdr --network {}",
+            account.name,
+            network
+        )
+        .cyan()
+    );
+    p::info("Submit the fully signed envelope with:");
+    println!(
+        "  {}",
+        format!(
+            "starforge wallet multisig submit {} --transaction tx.xdr --network {}",
+            account.name,
+            network
         )
         .cyan()
     );
     Ok(())
 }
 
-fn multisig_sign(name: String, transaction: PathBuf, output: Option<PathBuf>) -> Result<()> {
+fn multisig_sign(
+    name: String,
+    transaction: PathBuf,
+    network: Option<String>,
+    output: Option<PathBuf>,
+) -> Result<()> {
     config::validate_wallet_name(&name)?;
-    config::validate_file_path(&transaction, Some("json"))?;
+    config::validate_file_path(&transaction, None)?;
 
     let account = multisig::load_account(&name)?;
     let cfg = config::load()?;
+    let network = network.unwrap_or_else(|| {
+        cfg.wallets
+            .iter()
+            .find(|w| w.public_key == account.account_id)
+            .map(|w| w.network.clone())
+            .unwrap_or_else(|| "testnet".to_string())
+    });
+    config::validate_network(&network)?;
 
-    let mut tx = multisig::load_transaction(&transaction)?;
+    let mut tx_xdr = multisig::load_transaction_xdr(&transaction)?;
 
     p::header(&format!("Multi-sig Sign: {}", name));
     p::kv("Account", &account.account_id);
     p::kv("Transaction", &transaction.display().to_string());
+    p::kv("Network", &network);
 
     // Attempt to sign with every configured signer that we have a local secret key for.
     let mut signed = 0u32;
@@ -1992,28 +2032,30 @@ fn multisig_sign(name: String, transaction: PathBuf, output: Option<PathBuf>) ->
                 .map_err(|_| anyhow::anyhow!("Incorrect password or unable to decrypt."))?
         };
 
-        let sig = multisig::sign_transaction_partial(&tx.transaction_xdr, &plain_sk, "testnet")?;
-        if multisig::add_signature_to_transaction(&mut tx, &wallet_name, sig).is_ok() {
+        let (signed_xdr, _signer_public_key, added) =
+            multisig::sign_transaction_envelope(&tx_xdr, &plain_sk, &network)?;
+        if added {
+            tx_xdr = signed_xdr;
             signed += 1;
+        } else {
+            p::warn(&format!(
+                "Signer '{}' already appears to have signed this envelope.",
+                wallet_name
+            ));
         }
     }
 
-    tx.threshold_required = account.thresholds.high;
-    tx.current_weight = tx.signatures.len().min(u8::MAX as usize) as u8;
-    if multisig::check_transaction_ready(&tx) {
-        tx.status = multisig::TransactionStatus::ReadyToSubmit;
-    }
-
     let out_path = output.unwrap_or_else(|| transaction.clone());
-    multisig::save_transaction(&out_path, &tx)?;
+    multisig::save_transaction_xdr(&out_path, &tx_xdr)?;
+    let total_signatures = multisig::signature_count(&tx_xdr)?;
 
     println!();
     p::success("Signatures updated");
     p::kv("Signatures added", &signed.to_string());
-    p::kv("Total signatures", &tx.signatures.len().to_string());
+    p::kv("Total signatures", &total_signatures.to_string());
     p::kv("Output", &out_path.display().to_string());
 
-    if tx.status == multisig::TransactionStatus::ReadyToSubmit {
+    if total_signatures >= account.thresholds.high as usize {
         p::info("Transaction meets threshold and is ready to submit.");
     } else {
         p::warn("Transaction does not yet meet threshold.");
@@ -2084,32 +2126,31 @@ fn multisig_show(name: String) -> Result<()> {
 
 fn multisig_submit(name: String, transaction: PathBuf, network: Option<String>) -> Result<()> {
     config::validate_wallet_name(&name)?;
-    config::validate_file_path(&transaction, Some("json"))?;
+    config::validate_file_path(&transaction, None)?;
 
     let account = multisig::load_account(&name)?;
-    let tx = multisig::load_transaction(&transaction)?;
+    let signed_xdr = multisig::load_transaction_xdr(&transaction)?;
 
     let network = network.unwrap_or_else(|| "testnet".to_string());
     config::validate_network(&network)?;
+    let total_signatures = multisig::signature_count(&signed_xdr)?;
 
     p::header(&format!("Multi-Sig Submit: {}", name));
     p::kv("Account", &account.account_id);
     p::kv("Network", &network);
-    p::kv("Signatures", &tx.signatures.len().to_string());
-    p::kv("Threshold", &tx.threshold_required.to_string());
+    p::kv("Signatures", &total_signatures.to_string());
+    p::kv("Threshold", &account.thresholds.high.to_string());
 
-    if tx.status != multisig::TransactionStatus::ReadyToSubmit {
+    if total_signatures < account.thresholds.high as usize {
         anyhow::bail!(
-            "Transaction is not ready to submit (status: {:?}). \
+            "Transaction is not ready to submit ({} signatures, threshold {}). \
              Collect enough signatures first with `starforge wallet multisig sign`.",
-            tx.status
+            total_signatures,
+            account.thresholds.high
         );
     }
 
-    p::step(1, 2, "Combining signatures into final envelopeâ€¦");
-    let signed_xdr = multisig::combine_signatures(&tx.transaction_xdr, &tx.signatures)?;
-
-    p::step(2, 2, &format!("Submitting to Horizon ({})â€¦", network));
+    p::step(1, 1, &format!("Submitting signed envelope to Horizon ({})...", network));
     let result = horizon::submit_multisig_transaction(&signed_xdr, &network)?;
 
     println!();
