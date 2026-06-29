@@ -131,6 +131,20 @@ fn main() {
         print_banner();
     }
 
+    // On first run after a schema version change, re-display the telemetry notice.
+    if !cli.quiet {
+        if let Ok(true) = utils::telemetry::schema_version_changed() {
+            eprintln!(
+                "\n  {} Telemetry schema updated to v{}. starforge stores only: \
+                 schema_version, timestamp, command, duration_ms, success, anonymous_id. \
+                 No code, keys, or personal data. Run `starforge telemetry show` to audit \
+                 or `starforge telemetry disable` to opt out.\n",
+                "ℹ".cyan(),
+                utils::telemetry::TELEMETRY_SCHEMA_VERSION,
+            );
+        }
+    }
+
     let command_name = match &cli.command {
         Commands::Wallet(_) => "wallet",
         Commands::New(_) => "new",
