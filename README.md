@@ -412,25 +412,65 @@ Generate this value outside the codebase using your preferred secure workflow, s
 
 ### Telemetry & Privacy
 
-starforge collects **anonymous telemetry** to help us improve the CLI. **No personal data is collected** — only command names, success/failure status, and execution time.
+starforge collects **anonymous telemetry** to help us improve the CLI. **No personal data is collected.**
 
-#### Disable Telemetry
+#### Telemetry Schema (v1)
 
-If you prefer not to participate:
+Every event is stored as a single JSON line in `~/.starforge/data/telemetry.log`:
+
+```json
+{
+  "schema_version": 1,
+  "timestamp": "2025-01-01T12:00:00Z",
+  "command": "wallet",
+  "duration_ms": 42,
+  "success": true,
+  "anonymous_id": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `schema_version` | `u8` | Schema version — bumped on breaking changes |
+| `timestamp` | ISO 8601 string | UTC time of the command |
+| `command` | string | Top-level command name (e.g. `wallet`, `deploy`) |
+| `duration_ms` | integer | Execution time in milliseconds |
+| `success` | boolean | Whether the command completed without error |
+| `anonymous_id` | UUIDv4 string | Random ID generated once per install, never changes |
+
+The log is capped at **10,000 entries or 5 MB**, whichever comes first. Oldest entries are pruned automatically on each write. You can query it directly with `jq`:
 
 ```bash
+# Show all failed commands
+jq 'select(.success == false)' ~/.starforge/data/telemetry.log
+
+# Count commands by name
+jq -r '.command' ~/.starforge/data/telemetry.log | sort | uniq -c | sort -rn
+```
+
+#### Manage Telemetry
+
+```bash
+# Show the last 20 events in a table
+starforge telemetry show
+
+# Show the last 50 events
+starforge telemetry show --limit 50
+
+# Wipe the log entirely
+starforge telemetry clear
+
+# Check status and log stats
+starforge telemetry status
+
 # Permanently disable telemetry
-starforge config set telemetry false
+starforge telemetry disable
 
 # Or use an environment variable (useful for CI/CD)
 export STARFORGE_TELEMETRY=0
 ```
 
-**What's collected**: Command name, timestamp, success status, duration (milliseconds), and a random anonymous ID.
-
 **What's NOT collected**: Wallet addresses, secret keys, contract code, configuration values, error messages, or personal information.
-
-See [Privacy & Telemetry](#privacy--telemetry) for opt-out options.
 
 ---
 
