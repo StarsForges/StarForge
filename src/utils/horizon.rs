@@ -140,6 +140,12 @@ pub struct AccountResponse {
     pub balances: Vec<Balance>,
     #[allow(dead_code)]
     pub subentry_count: u32,
+    /// On-chain signers for the account (populated by Horizon).
+    #[serde(default)]
+    pub signers: Vec<AccountSignerEntry>,
+    /// On-chain thresholds for the account (populated by Horizon).
+    #[serde(default)]
+    pub thresholds: Option<AccountThresholds>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -147,6 +153,35 @@ pub struct Balance {
     pub balance: String,
     pub asset_type: String,
     pub asset_code: Option<String>,
+}
+
+// ── Account signer types ─────────────────────────────────────────────────────
+
+/// A single signer on a Stellar account, as returned by Horizon.
+#[derive(Debug, Clone, Deserialize)]
+pub struct AccountSignerEntry {
+    pub key: String,
+    pub weight: u32,
+    #[serde(rename = "type")]
+    pub signer_type: String,
+}
+
+/// On-chain thresholds for a Stellar account.
+#[derive(Debug, Clone, Deserialize)]
+pub struct AccountThresholds {
+    #[serde(rename = "low_threshold")]
+    pub low: u32,
+    #[serde(rename = "med_threshold")]
+    pub med: u32,
+    #[serde(rename = "high_threshold")]
+    pub high: u32,
+}
+
+/// Aggregated signer info for an account.
+#[derive(Debug, Clone)]
+pub struct AccountSignersInfo {
+    pub signers: Vec<AccountSignerEntry>,
+    pub thresholds: AccountThresholds,
 }
 
 pub fn fund_account(public_key: &str, network: &str) -> Result<()> {
@@ -957,5 +992,45 @@ mod tests {
         assert_eq!(records.len(), 1);
         assert_eq!(records[0].hash, "tx-1");
         assert_eq!(records[0].paging_token.as_deref(), Some("cursor-1"));
+    }
+
+    #[test]
+    fn fetch_account_signers_parses_signers_and_thresholds() {
+        let mut server = Server::new();
+        let _guard = TestConfigGuard::new(&server.url(), None);
+        let public_key = "GACCOUNT123";
+
+        let _mock = server
+            .mock("GET", format!("/accounts/{public_key}").as_str())
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                r#"{
+                    "id":"GACCOUNT123",
+                    "sequence":"123456789",
+                    "balances":[{"balance":"42.0000000","asset_type":"native","asset_code":null}],
+                    "subentry_count":2,
+                    "signers":[
+                        {"key":"GACCOUNT123","weight":1,"type":"ed25519_public_key"},
+                        {"key":"GSIGNER456","weight":2,"type":"ed25519_public_key"}
+                    ],
+                    "thresholds":{
+                        "low_threshold":1,
+                        "med_threshold":2,
+                        "high_threshold":3
+                    }
+                }"#,
+            )
+            .create();
+
+        let info = fetch_account_signers(public_key, "mocknet").expect("signers");
+        assert_eq!(info.signers.len(), 2);
+        assert_eq!(info.signers[0].key, "GACCOUNT123");
+        assert_eq!(info.signers[0].weight, 1);
+        assert_eq!(info.signers[1].key, "GSIGNER456");
+        assert_eq!(info.signers[1].weight, 2);
+        assert_eq!(info.thresholds.low, 1);
+        assert_eq!(info.thresholds.med, 2);
+        assert_eq!(info.thresholds.high, 3);
     }
 }
