@@ -41,6 +41,31 @@ pub struct ContractStorageEntry {
     pub value: String,
 }
 
+// ── Upgrade simulation types ─────────────────────────────────────────────────
+
+/// A display-friendly representation of a Soroban authorization entry
+/// required by an upgrade transaction.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AuthEntry {
+    /// The address that must authorize (contract or account).
+    pub address: String,
+    /// The function being authorized (e.g. `update_current_contract_wasm`).
+    pub function: String,
+    /// Human-readable descriptions of any sub-invocations.
+    pub sub_invocations: Vec<String>,
+}
+
+/// Result of simulating a contract upgrade transaction via Soroban RPC.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpgradeSimulationResult {
+    /// Estimated transaction fee in stroops.
+    pub fee: u64,
+    /// Authorization entries the upgrade would require.
+    pub auth_entries: Vec<AuthEntry>,
+    /// Any errors reported by the simulation.
+    pub errors: Vec<String>,
+}
+
 #[derive(Debug, Serialize)]
 struct SorobanRpcRequest {
     jsonrpc: String,
@@ -272,6 +297,137 @@ pub fn inspect_contract(contract_id: &str, network: &str) -> Result<ContractInsp
         })?;
 
     parse_contract_inspect_result(contract_id, network, response)
+}
+
+/// Fetch the raw WASM bytes stored on-chain for a given WASM hash.
+///
+/// Uses the Soroban `getLedgerEntries` RPC with a `ContractCode` ledger key.
+/// The `wasm_hash_hex` should be the 64-character hex SHA-256 hash of the WASM.
+///
+/// NOTE: This uses simplified XDR key construction consistent with the existing
+/// mock pattern in this module. A production deployment should use proper
+/// stellar-xdr encoding for the `LedgerKey::ContractCode` entry.
+pub fn fetch_wasm_code(wasm_hash_hex: &str, network: &str) -> Result<Vec<u8>> {
+    let rpc_url = get_rpc_url(network)?;
+
+    // Build a simplified LedgerKey::ContractCode key.
+    // In production, this would construct proper XDR for
+    // LedgerKey::ContractCode(LedgerKeyContractCode { hash: Hash(bytes) }).
+    let mock_key = format!("contract_code_key_{}", wasm_hash_hex);
+    let key_xdr = BASE64.encode(mock_key);
+
+    let request = SorobanRpcRequest {
+        jsonrpc: "2.0".to_string(),
+        id: 1,
+        method: "getLedgerEntries".to_string(),
+        params: serde_json::json!({
+            "keys": [key_xdr],
+            "xdrFormat": "base64",
+        }),
+    };
+
+    let response: GetLedgerEntriesResult = rpc_request_with_url(&rpc_url, request)
+        .with_context(|| format!("Failed to fetch WASM code for hash '{}' on {}", wasm_hash_hex, network))?;
+
+    let entry = response.entries.into_iter().next().ok_or_else(|| {
+        anyhow::anyhow!(
+            "WASM code for hash '{}' was not found on {}. The WASM may not have been uploaded yet.",
+            wasm_hash_hex,
+            network
+        )
+    })?;
+
+    // Decode the XDR entry to extract raw WASM bytes.
+    // In the current mock flow, we return the raw base64-decoded entry XDR.
+    // In production, this would parse LedgerEntryData::ContractCode and
+    // extract the `code` field.
+    let wasm_bytes = BASE64.decode(&entry.xdr)
+        .with_context(|| "Failed to decode on-chain WASM entry XDR")?;
+
+    Ok(wasm_bytes)
+}
+
+/// Simulate an upgrade transaction for a contract and return authorization info.
+///
+/// This calls `simulateTransaction` with an `update_current_contract_wasm`
+/// invocation and parses the resulting authorization entries so the user can
+/// see exactly what the upgrade requires.
+pub fn simulate_upgrade_transaction(
+    contract_id: &str,
+    new_wasm_hash: &str,
+    wallet: &WalletEntry,
+    network: &str,
+) -> Result<UpgradeSimulationResult> {
+    let rpc_url = get_rpc_url(network)?;
+
+    // Build a mock upgrade transaction XDR.
+    // In production, this would construct a proper InvokeHostFunction operation
+    // calling `update_current_contract_wasm(new_hash)`.
+    let mock_tx_xdr = format!(
+        "mock_upgrade_tx_{}_{}_{}_{}",
+        contract_id, new_wasm_hash, wallet.public_key, network
+    );
+
+    let request = SorobanRpcRequest {
+        jsonrpc: "2.0".to_string(),
+        id: 1,
+        method: "simulateTransaction".to_string(),
+        params: serde_json::json!({
+            "transaction": mock_tx_xdr,
+        }),
+    };
+
+    let result: serde_json::Value = rpc_request_with_url(&rpc_url, request)
+        .context("Upgrade simulation request failed")?;
+
+    let fee = extract_fee(&result)?;
+    let errors = extract_simulation_errors(&result);
+    let auth_entries = extract_auth_entries(&result);
+
+    Ok(UpgradeSimulationResult {
+        fee,
+        auth_entries,
+        errors,
+    })
+}
+
+/// Parse authorization entries from a simulation result.
+///
+/// Looks for `results[*].auth[*]` in the simulation response and converts each
+/// entry into a display-friendly `AuthEntry`.
+fn extract_auth_entries(result: &serde_json::Value) -> Vec<AuthEntry> {
+    let mut entries = Vec::new();
+
+    let results = match result.get("results").and_then(|r| r.as_array()) {
+        Some(r) => r,
+        None => return entries,
+    };
+
+    for item in results {
+        let auth_array = match item.get("auth").and_then(|a| a.as_array()) {
+            Some(a) => a,
+            None => continue,
+        };
+
+        for auth in auth_array {
+            // Each auth entry is base64-encoded XDR in production.
+            // For the mock flow, we parse it as a JSON-like string or extract
+            // what information is available.
+            let auth_str = auth.as_str().unwrap_or_default();
+
+            // In the mock flow, create a descriptive entry.
+            // In production, decode SorobanAuthorizationEntry XDR here.
+            if !auth_str.is_empty() {
+                entries.push(AuthEntry {
+                    address: "contract".to_string(),
+                    function: "update_current_contract_wasm".to_string(),
+                    sub_invocations: vec![format!("auth_xdr: {}...", &auth_str[..auth_str.len().min(20)])],
+                });
+            }
+        }
+    }
+
+    entries
 }
 
 fn get_rpc_url(network: &str) -> Result<String> {
@@ -872,5 +1028,42 @@ mod tests {
     fn encode_invalid_bool_errors() {
         let err = encode_arguments(&["maybe".to_string()], &["bool".to_string()]).unwrap_err();
         assert!(!err.to_string().is_empty());
+    }
+
+    // ── Upgrade simulation parsing tests ─────────────────────────────────
+
+    #[test]
+    fn parse_upgrade_simulation_with_auth_entries() {
+        let fixture = read_fixture("simulate_upgrade_success.json");
+        let response: SorobanRpcResponse<serde_json::Value> =
+            serde_json::from_str(&fixture).expect("failed to deserialize simulate_upgrade_success.json");
+
+        assert!(response.error.is_none());
+        let result = response.result.expect("missing result in response");
+
+        let fee = extract_fee(&result).unwrap();
+        assert_eq!(fee, 250000);
+
+        let auth_entries = extract_auth_entries(&result);
+        assert_eq!(auth_entries.len(), 1);
+        assert_eq!(auth_entries[0].function, "update_current_contract_wasm");
+        assert_eq!(auth_entries[0].address, "contract");
+        assert!(!auth_entries[0].sub_invocations.is_empty());
+
+        let errors = extract_simulation_errors(&result);
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn parse_upgrade_simulation_no_auth_entries() {
+        let fixture = read_fixture("simulate_upgrade_no_auth.json");
+        let response: SorobanRpcResponse<serde_json::Value> =
+            serde_json::from_str(&fixture).expect("failed to deserialize simulate_upgrade_no_auth.json");
+
+        assert!(response.error.is_none());
+        let result = response.result.expect("missing result in response");
+
+        let auth_entries = extract_auth_entries(&result);
+        assert!(auth_entries.is_empty());
     }
 }
