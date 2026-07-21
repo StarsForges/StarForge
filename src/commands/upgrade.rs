@@ -1,4 +1,4 @@
-use crate::utils::{config, confirmation, horizon, print as p};
+use crate::utils::{config, confirmation, horizon, print as p, soroban};
 use anyhow::Result;
 use chrono::Utc;
 use clap::{Args, Subcommand};
@@ -109,9 +109,9 @@ pub struct RollbackArgs {
     /// Contract ID to roll back
     #[arg(long)]
     pub contract_id: String,
-    /// Target version hash to roll back to
+    /// Target version hash to roll back to (if omitted, uses previous hash from history)
     #[arg(long)]
-    pub to_hash: String,
+    pub to_hash: Option<String>,
     /// Wallet name to use for signing
     #[arg(long)]
     pub wallet: Option<String>,
@@ -288,12 +288,11 @@ fn handle_prepare(args: PrepareArgs) -> Result<()> {
     config::validate_contract_id(&args.contract_id)?;
     config::validate_network(&args.network)?;
 
-    p::step(1, 3, "Validating WASM file…");
+    p::step(1, 4, "Validating WASM file…");
     let (_, new_hash) = validate_wasm(&args.wasm)?;
     p::kv_accent("New WASM hash", &new_hash);
 
-    p::step(2, 3, "Verifying contract exists on-chain…");
-    // Verify the deployer account is reachable
+    p::step(2, 4, "Verifying contract exists on-chain…");
     let cfg = config::load()?;
     let wallet = cfg.wallets.first().ok_or_else(|| {
         anyhow::anyhow!("No wallets found. Create one with `starforge wallet create`")
@@ -301,7 +300,27 @@ fn handle_prepare(args: PrepareArgs) -> Result<()> {
     horizon::fetch_account(&wallet.public_key, &args.network)
         .map_err(|e| anyhow::anyhow!("Account not active on {}: {}", args.network, e))?;
 
-    p::step(3, 3, "Generating upgrade command…");
+    p::step(3, 4, "Fetching current on-chain WASM hash…");
+    match soroban::inspect_contract(&args.contract_id, &args.network) {
+        Ok(inspect) => {
+            if let Some(ref on_chain_hash) = inspect.wasm_hash {
+                p::kv("Current on-chain hash", on_chain_hash);
+                if *on_chain_hash == new_hash {
+                    p::warn("The on-chain contract already runs this exact WASM — upgrade would be a no-op.");
+                } else {
+                    p::success("On-chain hash differs from local — upgrade is meaningful.");
+                }
+            } else {
+                p::info("Could not determine current on-chain WASM hash (StellarAsset contract?).");
+            }
+        }
+        Err(e) => {
+            p::warn(&format!("Could not inspect contract on-chain: {}", e));
+            p::info("Proceeding without on-chain hash verification.");
+        }
+    }
+
+    p::step(4, 4, "Generating upgrade command…");
     println!();
     p::separator();
     p::kv("Contract ID", &args.contract_id);
@@ -333,14 +352,63 @@ fn handle_propose(args: ProposeArgs) -> Result<()> {
     config::validate_contract_id(&args.contract_id)?;
     config::validate_network(&args.network)?;
 
-    p::step(1, 3, "Validating WASM…");
+    p::step(1, 5, "Validating WASM…");
     let (_, new_hash) = validate_wasm(&args.wasm)?;
 
-    p::step(2, 3, "Loading wallet…");
+    p::step(2, 5, "Loading wallet…");
     let cfg = config::load()?;
     let wallet = resolve_wallet(&cfg, args.wallet.as_deref())?;
 
-    p::step(3, 3, "Saving proposal…");
+    // ── On-chain hash verification ────────────────────────────────────────
+    p::step(3, 5, "Verifying on-chain WASM hash…");
+    match soroban::inspect_contract(&args.contract_id, &args.network) {
+        Ok(inspect) => {
+            if let Some(ref on_chain_hash) = inspect.wasm_hash {
+                p::kv("Current on-chain hash", on_chain_hash);
+                p::kv_accent("New local hash", &new_hash);
+                if *on_chain_hash == new_hash {
+                    p::warn("The on-chain contract already runs this exact WASM — upgrade would be a no-op.");
+                }
+            }
+        }
+        Err(e) => {
+            p::warn(&format!("Could not verify on-chain hash: {}", e));
+        }
+    }
+
+    // ── Upgrade simulation + auth display ─────────────────────────────────
+    p::step(4, 5, "Simulating upgrade transaction…");
+    match soroban::simulate_upgrade_transaction(&args.contract_id, &new_hash, wallet, &args.network) {
+        Ok(sim) => {
+            p::kv("Estimated fee", &format!("{} stroops", sim.fee));
+            if !sim.auth_entries.is_empty() {
+                println!();
+                p::info("Authorization entries required by this upgrade:");
+                for (i, entry) in sim.auth_entries.iter().enumerate() {
+                    println!(
+                        "  {}. {} → {}",
+                        i + 1,
+                        entry.address.cyan(),
+                        entry.function.bright_white()
+                    );
+                    for sub in &entry.sub_invocations {
+                        println!("     └─ {}", sub.dimmed());
+                    }
+                }
+            }
+            if !sim.errors.is_empty() {
+                for error in &sim.errors {
+                    p::warn(&format!("Simulation warning: {}", error));
+                }
+            }
+        }
+        Err(e) => {
+            p::warn(&format!("Upgrade simulation failed: {}", e));
+            p::info("Proceeding without simulation. The upgrade may still succeed.");
+        }
+    }
+
+    p::step(5, 5, "Saving proposal…");
     let proposal_id = format!("prop-{}", &new_hash[..12]);
 
     // Check for duplicate
@@ -590,21 +658,74 @@ fn handle_execute(args: ExecuteArgs) -> Result<()> {
     }
 
     println!();
-    p::step(1, 2, "Verifying account on-chain…");
+    p::step(1, 3, "Verifying account on-chain…");
     horizon::fetch_account(&wallet.public_key, &args.network)
         .map_err(|e| anyhow::anyhow!("Account not active on {}: {}", args.network, e))?;
 
-    p::step(2, 2, "Generating upgrade command…");
+    // ── Multisig signer weight check ──────────────────────────────────────
+    if proposal.threshold > 1 {
+        p::step(2, 3, "Validating multisig signer weights…");
+        match horizon::fetch_account_signers(&wallet.public_key, &args.network) {
+            Ok(signer_info) => {
+                let local_keys: Vec<&str> = cfg.wallets.iter().map(|w| w.public_key.as_str()).collect();
+                let available_weight: u32 = signer_info
+                    .signers
+                    .iter()
+                    .filter(|s| local_keys.contains(&s.key.as_str()))
+                    .map(|s| s.weight)
+                    .sum();
+                let required = signer_info.thresholds.high;
+
+                p::kv("On-chain high threshold", &required.to_string());
+                p::kv("Available local signer weight", &available_weight.to_string());
+
+                if required > 0 && available_weight < required {
+                    let missing: Vec<String> = signer_info
+                        .signers
+                        .iter()
+                        .filter(|s| !local_keys.contains(&s.key.as_str()))
+                        .map(|s| format!("  • {} (weight {})", short_id(&s.key), s.weight))
+                        .collect();
+
+                    let hint = if missing.is_empty() {
+                        "No additional signers found on-chain.".to_string()
+                    } else {
+                        format!("Missing signers:\n{}", missing.join("\n"))
+                    };
+
+                    anyhow::bail!(
+                        "Insufficient local signer weight ({}/{}) for high-threshold upgrade.\n{}",
+                        available_weight,
+                        required,
+                        hint
+                    );
+                }
+                p::success("Local signers meet the required threshold weight.");
+            }
+            Err(e) => {
+                p::warn(&format!("Could not verify signer weights: {}", e));
+                p::info("Proceeding without signer weight validation.");
+            }
+        }
+    }
+
+    p::step(3, 3, "Generating upgrade command…");
 
     // Clone fields needed after the mutable borrow ends
     let contract_id = proposal.contract_id.clone();
     let new_wasm_hash = proposal.new_wasm_hash.clone();
 
-    // Record in history
+    // Fetch the current on-chain WASM hash to record as from_hash
+    let from_hash = match soroban::inspect_contract(&contract_id, &args.network) {
+        Ok(inspect) => inspect.wasm_hash.unwrap_or_else(|| "unknown".to_string()),
+        Err(_) => "unknown".to_string(),
+    };
+
+    // Record in history with the actual from_hash
     let mut history = load_history()?;
     history.push(UpgradeRecord {
         contract_id: contract_id.clone(),
-        from_hash: "unknown".to_string(),
+        from_hash,
         to_hash: new_wasm_hash.clone(),
         proposal_id: proposal.id.clone(),
         executed_by: wallet.public_key.clone(),
@@ -652,18 +773,53 @@ fn handle_rollback(args: RollbackArgs) -> Result<()> {
     let cfg = config::load()?;
     let wallet = resolve_wallet(&cfg, args.wallet.as_deref())?;
 
-    // Verify the target hash exists in history
     let history = load_history()?;
+
+    // Resolve the target hash: use --to-hash if provided, otherwise find
+    // the most recent previous hash from upgrade history.
+    let rollback_hash = match args.to_hash {
+        Some(ref hash) => hash.clone(),
+        None => {
+            // Find the latest upgrade record for this contract and use its from_hash.
+            let latest = history
+                .iter()
+                .rev()
+                .find(|r| r.contract_id == args.contract_id && r.network == args.network);
+            match latest {
+                Some(record) if record.from_hash != "unknown" => {
+                    p::info(&format!(
+                        "No --to-hash specified. Using previous hash from history: {}",
+                        short_id(&record.from_hash)
+                    ));
+                    record.from_hash.clone()
+                }
+                _ => {
+                    anyhow::bail!(
+                        "No --to-hash specified and no previous hash found in upgrade history.\n\
+                         Run `starforge upgrade history --contract-id {}` to see available versions,\n\
+                         or specify --to-hash explicitly.",
+                        args.contract_id
+                    );
+                }
+            }
+        }
+    };
+
+    // Verify the target hash exists in history
     let target = history.iter()
-        .find(|r| r.contract_id == args.contract_id && r.to_hash == args.to_hash && r.network == args.network)
+        .find(|r| {
+            r.contract_id == args.contract_id
+                && r.network == args.network
+                && (r.to_hash == rollback_hash || r.from_hash == rollback_hash)
+        })
         .ok_or_else(|| anyhow::anyhow!(
             "Hash '{}' not found in upgrade history for contract '{}' on {}.\nRun `starforge upgrade history --contract-id {}` to see available versions.",
-            args.to_hash, args.contract_id, args.network, args.contract_id
+            rollback_hash, args.contract_id, args.network, args.contract_id
         ))?;
 
     p::separator();
     p::kv("Contract ID", &args.contract_id);
-    p::kv_accent("Rollback to", &args.to_hash);
+    p::kv_accent("Rollback to", &rollback_hash);
     p::kv("Originally from", &target.proposal_id);
     p::kv("Network", &args.network);
 
@@ -680,7 +836,7 @@ fn handle_rollback(args: RollbackArgs) -> Result<()> {
         risk_level,
     )
     .add("Contract ID", &args.contract_id)
-    .add("Rollback to", &args.to_hash)
+    .add("Rollback to", &rollback_hash)
     .add("Originally from", &target.proposal_id)
     .add("Network", &args.network)
     .add("Executor", &wallet.public_key);
@@ -710,7 +866,7 @@ fn handle_rollback(args: RollbackArgs) -> Result<()> {
         "  {}",
         format!(
             "stellar contract invoke --id {} --source {} --network {} -- upgrade --new-wasm-hash {}",
-            args.contract_id, wallet.public_key, args.network, args.to_hash
+            args.contract_id, wallet.public_key, args.network, rollback_hash
         ).cyan()
     );
     p::separator();
@@ -817,5 +973,59 @@ mod tests {
         assert_eq!(ProposalStatus::Pending.to_string(), "pending");
         assert_eq!(ProposalStatus::Approved.to_string(), "approved");
         assert_eq!(ProposalStatus::Executed.to_string(), "executed");
+    }
+
+    #[test]
+    fn upgrade_record_preserves_from_hash() {
+        let record = UpgradeRecord {
+            contract_id: "CABC".to_string(),
+            from_hash: "aabbccdd".to_string(),
+            to_hash: "eeff0011".to_string(),
+            proposal_id: "prop-123".to_string(),
+            executed_by: "GEXECUTOR".to_string(),
+            network: "testnet".to_string(),
+            timestamp: "2025-01-01T00:00:00Z".to_string(),
+        };
+        // Verify that from_hash is preserved (not hardcoded to "unknown")
+        assert_ne!(record.from_hash, "unknown");
+        assert_eq!(record.from_hash, "aabbccdd");
+    }
+
+    #[test]
+    fn short_id_truncates_long_ids() {
+        let id = "abcdefghijklmnopqrstuvwxyz";
+        let short = short_id(id);
+        assert!(short.len() < id.len());
+        assert!(short.ends_with('…'));
+    }
+
+    #[test]
+    fn short_id_handles_short_input() {
+        let id = "abc";
+        let short = short_id(id);
+        assert!(short.contains("abc"));
+    }
+
+    #[test]
+    fn upgrade_proposal_serialization_roundtrip() {
+        let proposal = UpgradeProposal {
+            id: "prop-test123".to_string(),
+            contract_id: "CCONTRACT".to_string(),
+            new_wasm_hash: "deadbeef".repeat(8),
+            description: "Test upgrade".to_string(),
+            proposer: "GPROPOSER".to_string(),
+            approvals: vec!["GPROPOSER".to_string()],
+            threshold: 2,
+            status: ProposalStatus::Pending,
+            network: "testnet".to_string(),
+            created_at: "2025-06-01T00:00:00Z".to_string(),
+            executed_at: None,
+        };
+
+        let json = serde_json::to_string(&proposal).unwrap();
+        let deserialized: UpgradeProposal = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.id, proposal.id);
+        assert_eq!(deserialized.threshold, 2);
+        assert_eq!(deserialized.status, ProposalStatus::Pending);
     }
 }

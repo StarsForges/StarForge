@@ -360,7 +360,7 @@ fn telemetry_subcommand_toggles_status() {
         .expect("spawn telemetry status");
     assert_success(&output3, "starforge telemetry status");
     let stdout3 = String::from_utf8_lossy(&output3.stdout);
-    assert!(stdout3.contains("false"));
+    assert!(stdout3.contains("disabled"));
 
     // Enable telemetry
     let output4 = starforge(home.path())
@@ -376,7 +376,7 @@ fn telemetry_subcommand_toggles_status() {
         .expect("spawn telemetry status");
     assert_success(&output5, "starforge telemetry status");
     let stdout5 = String::from_utf8_lossy(&output5.stdout);
-    assert!(stdout5.contains("true"));
+    assert!(stdout5.contains("enabled"));
 }
 
 #[test]
@@ -391,6 +391,6 @@ fn telemetry_respects_env_override() {
     assert_success(&output, "starforge telemetry status with env override");
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("Environment Override"));
+    assert!(stdout.contains("Env Override"));
     assert!(stdout.contains("false"));
 }

@@ -1,0 +1,21 @@
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "latestLedger": 50000,
+    "cost": {
+      "cpuInsns": 250000,
+      "memBytes": 4096
+    },
+    "results": [
+      {
+        "xdr": "AAAABQ==",
+        "auth": [
+          "AAAAEAAAAAEAAAABAAAADgAAABJ1cGdyYWRlX2F1dGhfZW50cnk="
+        ]
+      }
+    ],
+    "events": [],
+    "returnValue": "void"
+  }
+}
