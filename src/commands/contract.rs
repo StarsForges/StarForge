@@ -39,6 +39,9 @@ pub struct InvokeArgs {
     /// Submit the transaction after simulation
     #[arg(long, default_value = "false")]
     pub submit: bool,
+    /// Fee multiplier for transaction submission and fee bumping
+    #[arg(long, default_value = "1.0")]
+    pub fee_multiplier: f64,
 }
 
 #[derive(Args)]
@@ -273,6 +276,7 @@ fn handle_invoke(args: InvokeArgs) -> Result<()> {
         &arg_types,
         &args.network,
         submit_wallet.as_ref(),
+        args.fee_multiplier,
     )?;
 
     let simulation_result = outcome.simulation;

@@ -35,6 +35,10 @@ pub struct InvokeArgs {
     /// Skip confirmation prompt
     #[arg(long, default_value = "false")]
     yes: bool,
+
+    /// Fee multiplier for transaction submission and fee bumping
+    #[arg(long, default_value = "1.0")]
+    fee_multiplier: f64,
 }
 
 #[allow(dead_code)]
@@ -99,6 +103,7 @@ pub fn handle(args: InvokeArgs) -> Result<()> {
         &arg_type_list,
         network,
         submit_wallet.map(|w| w as &crate::utils::config::WalletEntry),
+        args.fee_multiplier,
     )?;
 
     println!();

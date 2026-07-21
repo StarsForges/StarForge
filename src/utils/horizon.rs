@@ -195,6 +195,14 @@ pub fn fetch_account(public_key: &str, network: &str) -> Result<AccountResponse>
     }
 }
 
+pub fn fetch_account_sequence(public_key: &str, network: &str) -> Result<i64> {
+    let account = fetch_account(public_key, network)?;
+    account
+        .sequence
+        .parse::<i64>()
+        .with_context(|| format!("Failed to parse sequence string '{}'", account.sequence))
+}
+
 pub fn check_network(network: &str) -> bool {
     if let Ok(client) = HorizonClient::for_network(network) {
         client
