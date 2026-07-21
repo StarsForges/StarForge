@@ -43,6 +43,9 @@ pub struct DeployArgs {
     /// deployment plan and exits. Implies --simulate.
     #[arg(long, default_value = "false")]
     pub dry_run: bool,
+    /// Fee multiplier for transaction submission and fee bumping
+    #[arg(long, default_value = "1.0")]
+    pub fee_multiplier: f64,
 }
 
 fn is_wasm_above_size_limit(wasm_size_kb: f64) -> bool {

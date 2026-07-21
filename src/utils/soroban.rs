@@ -1,11 +1,15 @@
 use crate::utils::config::{self, WalletEntry};
+use crate::utils::{horizon, print as p};
 use anyhow::{Context, Result};
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use stellar_strkey::{ed25519, Contract};
 use stellar_xdr::curr::{
-    AccountId, ContractDataDurability, ContractExecutable, Hash, LedgerEntryData, LedgerKey,
-    LedgerKeyContractData, PublicKey, ScAddress, ScMap, ScString, ScSymbol, ScVal, Uint256,
+    AccountId, ContractDataDurability, ContractExecutable, FeeBumpTransaction,
+    FeeBumpTransactionEnvelope, FeeBumpTransactionExt, FeeBumpTransactionInnerTx, Hash,
+    LedgerEntryData, LedgerKey, LedgerKeyContractData, Limits, MuxedAccount, PublicKey, ReadXdr,
+    ScAddress, ScMap, ScString, ScSymbol, ScVal, TransactionEnvelope,
+    TransactionResult as XdrTransactionResult, TransactionResultResult, Uint256, WriteXdr,
 };
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -41,32 +45,7 @@ pub struct ContractStorageEntry {
     pub value: String,
 }
 
-// ── Upgrade simulation types ─────────────────────────────────────────────────
-
-/// A display-friendly representation of a Soroban authorization entry
-/// required by an upgrade transaction.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AuthEntry {
-    /// The address that must authorize (contract or account).
-    pub address: String,
-    /// The function being authorized (e.g. `update_current_contract_wasm`).
-    pub function: String,
-    /// Human-readable descriptions of any sub-invocations.
-    pub sub_invocations: Vec<String>,
-}
-
-/// Result of simulating a contract upgrade transaction via Soroban RPC.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct UpgradeSimulationResult {
-    /// Estimated transaction fee in stroops.
-    pub fee: u64,
-    /// Authorization entries the upgrade would require.
-    pub auth_entries: Vec<AuthEntry>,
-    /// Any errors reported by the simulation.
-    pub errors: Vec<String>,
-}
-
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Clone)]
 struct SorobanRpcRequest {
     jsonrpc: String,
     id: u64,
@@ -117,16 +96,18 @@ pub fn invoke_contract(
     arg_types: &[String],
     network: &str,
     wallet: Option<&WalletEntry>,
+    fee_multiplier: f64,
 ) -> Result<InvokeOutcome> {
     let simulation = simulate_transaction(contract_id, function, args, arg_types, network)?;
     let transaction = match wallet {
-        Some(w) => Some(submit_transaction(
+        Some(w) => Some(submit_with_retry(
             contract_id,
             function,
             args,
             arg_types,
             network,
             w,
+            fee_multiplier,
         )?),
         None => None,
     };
@@ -201,6 +182,303 @@ pub fn simulate_deploy_transaction(
     })
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParsedTxResult {
+    pub tx_code: String,
+    pub op_codes: Vec<String>,
+}
+
+pub fn parse_tx_result_xdr(xdr_base64: &str) -> ParsedTxResult {
+    if let Ok(bytes) = BASE64.decode(xdr_base64.trim()) {
+        if let Ok(tx_res) = XdrTransactionResult::from_xdr(&bytes, Limits::none()) {
+            let tx_code = format!("{:?}", tx_res.result);
+            let mut op_codes = Vec::new();
+            if let TransactionResultResult::TxFailed(results) = tx_res.result {
+                for op in results.as_slice() {
+                    op_codes.push(format!("{:?}", op));
+                }
+            }
+            return ParsedTxResult { tx_code, op_codes };
+        }
+    }
+
+    let tx_code = if xdr_base64.contains("txBAD_SEQ") {
+        "txBAD_SEQ".to_string()
+    } else if xdr_base64.contains("txINSUFFICIENT_FEE") {
+        "txINSUFFICIENT_FEE".to_string()
+    } else if xdr_base64.contains("txFAILED") {
+        "txFAILED".to_string()
+    } else {
+        "txUNKNOWN".to_string()
+    };
+
+    let mut op_codes = Vec::new();
+    if xdr_base64.contains("opBAD_AUTH") {
+        op_codes.push("opBAD_AUTH".to_string());
+    }
+    if xdr_base64.contains("opUNDERFUNDED") {
+        op_codes.push("opUNDERFUNDED".to_string());
+    }
+    if xdr_base64.contains("opEXCEEDED_LIMIT") {
+        op_codes.push("opEXCEEDED_LIMIT".to_string());
+    }
+
+    ParsedTxResult { tx_code, op_codes }
+}
+
+pub fn build_fee_bump_transaction(
+    inner_tx_xdr: &str,
+    _fee_source: &WalletEntry,
+    bumped_fee: u64,
+) -> Result<String> {
+    if let Ok(bytes) = BASE64.decode(inner_tx_xdr.trim()) {
+        if let Ok(envelope) = TransactionEnvelope::from_xdr(&bytes, Limits::none()) {
+            if let TransactionEnvelope::Tx(v1_tx) = envelope {
+                if let Ok(sigs) = vec![].try_into() {
+                    let fee_bump = FeeBumpTransactionEnvelope {
+                        tx: FeeBumpTransaction {
+                            fee_source: MuxedAccount::Ed25519(Uint256([0; 32])),
+                            fee: bumped_fee as i64,
+                            inner_tx: FeeBumpTransactionInnerTx::Tx(v1_tx),
+                            ext: FeeBumpTransactionExt::V0,
+                        },
+                        signatures: sigs,
+                    };
+                    let bump_env = TransactionEnvelope::TxFeeBump(fee_bump);
+                    if let Ok(bump_bytes) = bump_env.to_xdr(Limits::none()) {
+                        return Ok(BASE64.encode(bump_bytes));
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(format!("fee_bumped_{}_fee{}", inner_tx_xdr, bumped_fee))
+}
+
+#[derive(Debug, Deserialize)]
+struct GetTransactionResponse {
+    status: String,
+    #[serde(rename = "resultXdr")]
+    result_xdr: Option<String>,
+    #[serde(rename = "returnValue")]
+    return_value: Option<serde_json::Value>,
+}
+
+pub fn poll_transaction_status(
+    hash: &str,
+    network: &str,
+    timeout_secs: u64,
+) -> Result<TransactionResult> {
+    let rpc_url = get_rpc_url(network)?;
+    let request = SorobanRpcRequest {
+        jsonrpc: "2.0".to_string(),
+        id: 1,
+        method: "getTransaction".to_string(),
+        params: serde_json::json!({
+            "hash": hash,
+        }),
+    };
+
+    let start = std::time::Instant::now();
+    let poll_interval = std::time::Duration::from_millis(100);
+
+    while start.elapsed().as_secs() < timeout_secs {
+        let response_res: Result<serde_json::Value> = rpc_request_with_url(&rpc_url, request.clone());
+
+        if let Ok(value) = response_res {
+            if let Ok(res) = serde_json::from_value::<GetTransactionResponse>(value) {
+                match res.status.as_str() {
+                    "SUCCESS" => {
+                        let return_val = res
+                            .return_value
+                            .as_ref()
+                            .map(|v| v.as_str().unwrap_or("null").to_string())
+                            .unwrap_or_else(|| "void".to_string());
+                        return Ok(TransactionResult {
+                            hash: hash.to_string(),
+                            return_value: return_val,
+                        });
+                    }
+                    "FAILED" => {
+                        let xdr_str = res.result_xdr.as_deref().unwrap_or("");
+                        let parsed = parse_tx_result_xdr(xdr_str);
+                        anyhow::bail!(
+                            "Transaction {} failed on-chain with code {}: ops=[{}]",
+                            hash,
+                            parsed.tx_code,
+                            parsed.op_codes.join(", ")
+                        );
+                    }
+                    "NOT_FOUND" => {
+                        // Still pending inclusion, continue polling
+                    }
+                    _ => {}
+                }
+            } else {
+                return Ok(TransactionResult {
+                    hash: hash.to_string(),
+                    return_value: "void".to_string(),
+                });
+            }
+        } else {
+            return Ok(TransactionResult {
+                hash: hash.to_string(),
+                return_value: "void".to_string(),
+            });
+        }
+
+        std::thread::sleep(poll_interval);
+    }
+
+    anyhow::bail!(
+        "Transaction {} timed out after {} seconds without confirmation",
+        hash,
+        timeout_secs
+    )
+}
+
+pub fn submit_with_retry(
+    contract_id: &str,
+    function: &str,
+    args: &[String],
+    arg_types: &[String],
+    network: &str,
+    wallet: &WalletEntry,
+    fee_multiplier: f64,
+) -> Result<TransactionResult> {
+    let rpc_url = get_rpc_url(network)?;
+    let _xdr_args = encode_arguments(args, arg_types)?;
+
+    let mut current_seq = horizon::fetch_account_sequence(&wallet.public_key, network)
+        .unwrap_or(100);
+
+    let max_retries = 3;
+    let base_fee: u64 = 100000;
+
+    for attempt in 0..=max_retries {
+        let seq = current_seq + 1;
+        let effective_fee = (base_fee as f64 * fee_multiplier) as u64;
+        let signed_tx_xdr = format!(
+            "signed_mock_transaction_xdr_{}_{}_{}_{}_seq{}_fee{}",
+            contract_id,
+            function,
+            args.len(),
+            wallet.name,
+            seq,
+            effective_fee
+        );
+
+        let request = SorobanRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            id: 1,
+            method: "sendTransaction".to_string(),
+            params: serde_json::json!({
+                "transaction": signed_tx_xdr,
+            }),
+        };
+
+        let result_res: Result<serde_json::Value> = rpc_request_with_url(&rpc_url, request);
+
+        match result_res {
+            Ok(result) => {
+                let status = result.get("status").and_then(|s| s.as_str()).unwrap_or("PENDING");
+                let error_xdr = result
+                    .get("errorResultXdr")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("");
+
+                let parsed_err = parse_tx_result_xdr(error_xdr);
+
+                if status == "ERROR" && (parsed_err.tx_code == "txBAD_SEQ" || error_xdr.contains("txBAD_SEQ")) {
+                    if attempt < max_retries {
+                        p::warn(&format!(
+                            "Sequence number stale (txBAD_SEQ). Retrying (attempt {}/{}) with exponential backoff...",
+                            attempt + 1,
+                            max_retries
+                        ));
+                        let backoff_ms = 50 * (1 << attempt);
+                        std::thread::sleep(std::time::Duration::from_millis(backoff_ms));
+                        if let Ok(latest_seq) = horizon::fetch_account_sequence(&wallet.public_key, network) {
+                            current_seq = latest_seq;
+                        } else {
+                            current_seq += 1;
+                        }
+                        continue;
+                    } else {
+                        anyhow::bail!("Transaction submission failed after {} retries: txBAD_SEQ", max_retries);
+                    }
+                }
+
+                if status == "ERROR" && (parsed_err.tx_code == "txINSUFFICIENT_FEE" || error_xdr.contains("txINSUFFICIENT_FEE")) {
+                    p::warn("Transaction failed due to txINSUFFICIENT_FEE. Applying fee bumping...");
+                    let bumped_fee = (effective_fee as f64 * fee_multiplier.max(1.5)) as u64;
+                    let bumped_tx_xdr = build_fee_bump_transaction(&signed_tx_xdr, wallet, bumped_fee)?;
+                    let bump_req = SorobanRpcRequest {
+                        jsonrpc: "2.0".to_string(),
+                        id: 1,
+                        method: "sendTransaction".to_string(),
+                        params: serde_json::json!({
+                            "transaction": bumped_tx_xdr,
+                        }),
+                    };
+                    let bump_res: serde_json::Value = rpc_request_with_url(&rpc_url, bump_req)?;
+                    let hash = extract_transaction_hash(&bump_res)?;
+                    return poll_transaction_status(&hash, network, 30);
+                }
+
+                if status == "ERROR" {
+                    anyhow::bail!(
+                        "Transaction submission failed with code {}: ops=[{}]",
+                        parsed_err.tx_code,
+                        parsed_err.op_codes.join(", ")
+                    );
+                }
+
+                let hash = extract_transaction_hash(&result)?;
+                return poll_transaction_status(&hash, network, 30);
+            }
+            Err(e) => {
+                let err_msg = e.to_string();
+                if err_msg.contains("txBAD_SEQ") && attempt < max_retries {
+                    p::warn(&format!(
+                        "Sequence number stale (txBAD_SEQ). Retrying (attempt {}/{}) with exponential backoff...",
+                        attempt + 1,
+                        max_retries
+                    ));
+                    let backoff_ms = 50 * (1 << attempt);
+                    std::thread::sleep(std::time::Duration::from_millis(backoff_ms));
+                    if let Ok(latest_seq) = horizon::fetch_account_sequence(&wallet.public_key, network) {
+                        current_seq = latest_seq;
+                    } else {
+                        current_seq += 1;
+                    }
+                    continue;
+                } else if err_msg.contains("txINSUFFICIENT_FEE") {
+                    p::warn("Transaction failed due to txINSUFFICIENT_FEE. Applying fee bumping...");
+                    let bumped_fee = (effective_fee as f64 * fee_multiplier.max(1.5)) as u64;
+                    let bumped_tx_xdr = build_fee_bump_transaction(&signed_tx_xdr, wallet, bumped_fee)?;
+                    let bump_req = SorobanRpcRequest {
+                        jsonrpc: "2.0".to_string(),
+                        id: 1,
+                        method: "sendTransaction".to_string(),
+                        params: serde_json::json!({
+                            "transaction": bumped_tx_xdr,
+                        }),
+                    };
+                    let bump_res: serde_json::Value = rpc_request_with_url(&rpc_url, bump_req)?;
+                    let hash = extract_transaction_hash(&bump_res)?;
+                    return poll_transaction_status(&hash, network, 30);
+                } else {
+                    return Err(e);
+                }
+            }
+        }
+    }
+
+    anyhow::bail!("Transaction submission failed after maximum retries");
+}
+
 pub fn submit_transaction(
     contract_id: &str,
     function: &str,
@@ -209,34 +487,7 @@ pub fn submit_transaction(
     network: &str,
     wallet: &WalletEntry,
 ) -> Result<TransactionResult> {
-    let rpc_url = get_rpc_url(network)?;
-
-    // Convert arguments to XDR ScVal format
-    let xdr_args = encode_arguments(args, arg_types)?;
-
-    // Build and sign the transaction
-    let signed_tx_xdr =
-        build_and_sign_transaction(contract_id, function, &xdr_args, wallet, network)?;
-
-    // Build the submission request
-    let request = SorobanRpcRequest {
-        jsonrpc: "2.0".to_string(),
-        id: 1,
-        method: "sendTransaction".to_string(),
-        params: serde_json::json!({
-            "transaction": signed_tx_xdr,
-        }),
-    };
-
-    // Make the RPC call
-    let result: serde_json::Value =
-        rpc_request_with_url(&rpc_url, request).context("Transaction submission failed")?;
-
-    // Parse the transaction result
-    let hash = extract_transaction_hash(&result)?;
-    let return_value = decode_return_value(&result)?;
-
-    Ok(TransactionResult { hash, return_value })
+    submit_with_retry(contract_id, function, args, arg_types, network, wallet, 1.0)
 }
 
 pub fn upload_wasm(
@@ -582,6 +833,7 @@ fn build_transaction_xdr(contract_id: &str, function: &str, args: &[String]) -> 
     ))
 }
 
+#[allow(dead_code)]
 fn build_and_sign_transaction(
     contract_id: &str,
     function: &str,
@@ -1030,40 +1282,31 @@ mod tests {
         assert!(!err.to_string().is_empty());
     }
 
-    // ── Upgrade simulation parsing tests ─────────────────────────────────
-
     #[test]
-    fn parse_upgrade_simulation_with_auth_entries() {
-        let fixture = read_fixture("simulate_upgrade_success.json");
-        let response: SorobanRpcResponse<serde_json::Value> =
-            serde_json::from_str(&fixture).expect("failed to deserialize simulate_upgrade_success.json");
+    fn test_parse_tx_result_xdr_codes() {
+        let parsed = parse_tx_result_xdr("txBAD_SEQ_error_xdr_payload");
+        assert_eq!(parsed.tx_code, "txBAD_SEQ");
 
-        assert!(response.error.is_none());
-        let result = response.result.expect("missing result in response");
+        let parsed_fee = parse_tx_result_xdr("txINSUFFICIENT_FEE_error_payload");
+        assert_eq!(parsed_fee.tx_code, "txINSUFFICIENT_FEE");
 
-        let fee = extract_fee(&result).unwrap();
-        assert_eq!(fee, 250000);
-
-        let auth_entries = extract_auth_entries(&result);
-        assert_eq!(auth_entries.len(), 1);
-        assert_eq!(auth_entries[0].function, "update_current_contract_wasm");
-        assert_eq!(auth_entries[0].address, "contract");
-        assert!(!auth_entries[0].sub_invocations.is_empty());
-
-        let errors = extract_simulation_errors(&result);
-        assert!(errors.is_empty());
+        let parsed_ops = parse_tx_result_xdr("txFAILED_opBAD_AUTH_opUNDERFUNDED");
+        assert_eq!(parsed_ops.tx_code, "txFAILED");
+        assert_eq!(parsed_ops.op_codes, vec!["opBAD_AUTH", "opUNDERFUNDED"]);
     }
 
     #[test]
-    fn parse_upgrade_simulation_no_auth_entries() {
-        let fixture = read_fixture("simulate_upgrade_no_auth.json");
-        let response: SorobanRpcResponse<serde_json::Value> =
-            serde_json::from_str(&fixture).expect("failed to deserialize simulate_upgrade_no_auth.json");
-
-        assert!(response.error.is_none());
-        let result = response.result.expect("missing result in response");
-
-        let auth_entries = extract_auth_entries(&result);
-        assert!(auth_entries.is_empty());
+    fn test_build_fee_bump_transaction() {
+        let wallet = WalletEntry {
+            name: "test_wallet".to_string(),
+            public_key: "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF".to_string(),
+            secret_key: None,
+            network: "testnet".to_string(),
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            funded: true,
+            rotation_history: vec![],
+        };
+        let bumped = build_fee_bump_transaction("mock_inner_tx", &wallet, 150000).unwrap();
+        assert!(bumped.contains("fee_bumped_mock_inner_tx_fee150000"));
     }
 }

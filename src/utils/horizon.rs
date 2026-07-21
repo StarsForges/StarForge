@@ -230,24 +230,12 @@ pub fn fetch_account(public_key: &str, network: &str) -> Result<AccountResponse>
     }
 }
 
-/// Fetch the on-chain signers and thresholds for an account from Horizon.
-///
-/// This is used by the upgrade command to verify that locally available wallets
-/// meet the required signature weight for high-threshold operations like
-/// contract upgrades.
-pub fn fetch_account_signers(public_key: &str, network: &str) -> Result<AccountSignersInfo> {
+pub fn fetch_account_sequence(public_key: &str, network: &str) -> Result<i64> {
     let account = fetch_account(public_key, network)?;
-
-    let thresholds = account.thresholds.unwrap_or(AccountThresholds {
-        low: 0,
-        med: 0,
-        high: 0,
-    });
-
-    Ok(AccountSignersInfo {
-        signers: account.signers,
-        thresholds,
-    })
+    account
+        .sequence
+        .parse::<i64>()
+        .with_context(|| format!("Failed to parse sequence string '{}'", account.sequence))
 }
 
 pub fn check_network(network: &str) -> bool {
