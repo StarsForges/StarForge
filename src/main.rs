@@ -112,6 +112,10 @@ enum Commands {
     /// Run connectivity diagnostics for attached Ledger/Trezor devices
     Diagnostics(commands::diagnostics::DiagnosticsArgs),
 
+    /// AI-powered development assistance for Soroban contracts
+    #[command(subcommand)]
+    Ai(commands::ai::AiArgs),
+
     /// Execute an installed plugin command (e.g. `starforge defi ...`)
     #[command(external_subcommand)]
     External(Vec<String>),
@@ -169,6 +173,7 @@ fn main() {
         Commands::Upgrade(_) => "upgrade",
         Commands::Lint(_) => "lint",
         Commands::Diagnostics(_) => "diagnostics",
+        Commands::Ai(_) => "ai",
         Commands::External(_) => "external",
     }
     .to_string();
@@ -198,6 +203,11 @@ fn main() {
         Commands::Upgrade(cmd) => commands::upgrade::handle(cmd),
         Commands::Lint(args) => commands::lint::handle(args),
         Commands::Diagnostics(args) => commands::diagnostics::handle(args),
+        Commands::Ai(args) => {
+            tokio::runtime::Runtime::new()
+                .context("Failed to create async runtime")?
+                .block_on(commands::ai::handle(args))
+        }
         Commands::External(args) => handle_external_plugin(args),
     };
     let duration = start.elapsed();
