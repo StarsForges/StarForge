@@ -238,6 +238,17 @@ pub fn fetch_account_sequence(public_key: &str, network: &str) -> Result<i64> {
         .with_context(|| format!("Failed to parse sequence string '{}'", account.sequence))
 }
 
+pub fn fetch_account_signers(public_key: &str, network: &str) -> Result<AccountSignersInfo> {
+    let account = fetch_account(public_key, network)?;
+    let thresholds = account.thresholds.ok_or_else(|| {
+        anyhow!("Account response did not contain thresholds")
+    })?;
+    Ok(AccountSignersInfo {
+        signers: account.signers,
+        thresholds,
+    })
+}
+
 pub fn check_network(network: &str) -> bool {
     if let Ok(client) = HorizonClient::for_network(network) {
         client

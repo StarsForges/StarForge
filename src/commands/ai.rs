@@ -1,8 +1,8 @@
 use anyhow::{Context, Result};
 use async_openai::{
+    config::OpenAIConfig,
     types::{
-        ChatCompletionRequestMessage, ChatCompletionRequestSystemMessage,
-        ChatCompletionRequestUserMessage, CreateChatCompletionRequest,
+        ChatCompletionRequestMessage, CreateChatCompletionRequest, Role,
     },
     Client,
 };
@@ -74,7 +74,8 @@ pub async fn handle(args: AiArgs) -> Result<()> {
         .or_else(|_| env::var("STARFORGE_AI_API_KEY"))
         .context("OPENAI_API_KEY or STARFORGE_AI_API_KEY environment variable not set")?;
 
-    let client = Client::new().with_api_key(api_key);
+    let config = OpenAIConfig::default().with_api_key(api_key);
+    let client = Client::with_config(config);
 
     match args.command {
         AiCommands::Generate {
@@ -100,7 +101,7 @@ pub async fn handle(args: AiArgs) -> Result<()> {
 }
 
 async fn generate_contract(
-    client: &Client,
+    client: &Client<OpenAIConfig>,
     prompt: &str,
     output: Option<&str>,
     model: &str,
@@ -110,14 +111,18 @@ async fn generate_contract(
     let system_prompt = "You are an expert Soroban smart contract developer. Generate complete, compilable Soroban contract code in Rust based on the user's description. Include proper error handling, comments, and follow Soroban best practices. Return only the code without markdown formatting.";
 
     let messages = vec![
-        ChatCompletionRequestMessage::System(ChatCompletionRequestSystemMessage {
-            content: system_prompt.to_string(),
+        ChatCompletionRequestMessage {
+            role: Role::System,
+            content: Some(system_prompt.to_string()),
             name: None,
-        }),
-        ChatCompletionRequestMessage::User(ChatCompletionRequestUserMessage {
-            content: prompt.to_string(),
+            function_call: None,
+        },
+        ChatCompletionRequestMessage {
+            role: Role::User,
+            content: Some(prompt.to_string()),
             name: None,
-        }),
+            function_call: None,
+        },
     ];
 
     let request = CreateChatCompletionRequest {
@@ -129,7 +134,8 @@ async fn generate_contract(
     let response = client.chat().create(request).await?;
 
     if let Some(choice) = response.choices.first() {
-        let code = choice.message.content.trim();
+        let code = choice.message.content.clone().unwrap_or_default();
+        let code = code.trim();
         
         if let Some(output_path) = output {
             std::fs::write(output_path, code)
@@ -144,7 +150,7 @@ async fn generate_contract(
     Ok(())
 }
 
-async fn analyze_contract(client: &Client, file: &str, analysis_type: &str) -> Result<()> {
+async fn analyze_contract(client: &Client<OpenAIConfig>, file: &str, analysis_type: &str) -> Result<()> {
     println!("{} Analyzing contract for {}...", "🔍".cyan(), analysis_type);
 
     let code = std::fs::read_to_string(file).context("Failed to read contract file")?;
@@ -157,14 +163,18 @@ async fn analyze_contract(client: &Client, file: &str, analysis_type: &str) -> R
     };
 
     let messages = vec![
-        ChatCompletionRequestMessage::System(ChatCompletionRequestSystemMessage {
-            content: system_prompt.to_string(),
+        ChatCompletionRequestMessage {
+            role: Role::System,
+            content: Some(system_prompt.to_string()),
             name: None,
-        }),
-        ChatCompletionRequestMessage::User(ChatCompletionRequestUserMessage {
-            content: format!("Analyze this Soroban contract:\n\n{}", code),
+            function_call: None,
+        },
+        ChatCompletionRequestMessage {
+            role: Role::User,
+            content: Some(format!("Analyze this Soroban contract:\n\n{}", code)),
             name: None,
-        }),
+            function_call: None,
+        },
     ];
 
     let request = CreateChatCompletionRequest {
@@ -177,13 +187,14 @@ async fn analyze_contract(client: &Client, file: &str, analysis_type: &str) -> R
 
     if let Some(choice) = response.choices.first() {
         println!("{}", "Analysis results:".bold());
-        println!("{}", choice.message.content);
+        let content = choice.message.content.clone().unwrap_or_default();
+        println!("{}", content);
     }
 
     Ok(())
 }
 
-async fn generate_tests(client: &Client, file: &str, output: Option<&str>) -> Result<()> {
+async fn generate_tests(client: &Client<OpenAIConfig>, file: &str, output: Option<&str>) -> Result<()> {
     println!("{} Generating test cases...", "🧪".cyan());
 
     let code = std::fs::read_to_string(file).context("Failed to read contract file")?;
@@ -191,14 +202,18 @@ async fn generate_tests(client: &Client, file: &str, output: Option<&str>) -> Re
     let system_prompt = "You are a Soroban testing expert. Generate comprehensive test cases for the provided Soroban contract. Include unit tests, edge cases, and integration tests. Use the Soroban SDK testing framework. Return only the test code without markdown formatting.";
 
     let messages = vec![
-        ChatCompletionRequestMessage::System(ChatCompletionRequestSystemMessage {
-            content: system_prompt.to_string(),
+        ChatCompletionRequestMessage {
+            role: Role::System,
+            content: Some(system_prompt.to_string()),
             name: None,
-        }),
-        ChatCompletionRequestMessage::User(ChatCompletionRequestUserMessage {
-            content: format!("Generate tests for this Soroban contract:\n\n{}", code),
+            function_call: None,
+        },
+        ChatCompletionRequestMessage {
+            role: Role::User,
+            content: Some(format!("Generate tests for this Soroban contract:\n\n{}", code)),
             name: None,
-        }),
+            function_call: None,
+        },
     ];
 
     let request = CreateChatCompletionRequest {
@@ -210,7 +225,8 @@ async fn generate_tests(client: &Client, file: &str, output: Option<&str>) -> Re
     let response = client.chat().create(request).await?;
 
     if let Some(choice) = response.choices.first() {
-        let test_code = choice.message.content.trim();
+        let test_code = choice.message.content.clone().unwrap_or_default();
+        let test_code = test_code.trim();
         
         if let Some(output_path) = output {
             std::fs::write(output_path, test_code)
@@ -226,7 +242,7 @@ async fn generate_tests(client: &Client, file: &str, output: Option<&str>) -> Re
 }
 
 async fn explain_contract(
-    client: &Client,
+    client: &Client<OpenAIConfig>,
     file: &str,
     function: Option<&str>,
 ) -> Result<()> {
@@ -246,14 +262,18 @@ async fn explain_contract(
     };
 
     let messages = vec![
-        ChatCompletionRequestMessage::System(ChatCompletionRequestSystemMessage {
-            content: system_prompt.to_string(),
+        ChatCompletionRequestMessage {
+            role: Role::System,
+            content: Some(system_prompt.to_string()),
             name: None,
-        }),
-        ChatCompletionRequestMessage::User(ChatCompletionRequestUserMessage {
-            content: user_prompt,
+            function_call: None,
+        },
+        ChatCompletionRequestMessage {
+            role: Role::User,
+            content: Some(user_prompt),
             name: None,
-        }),
+            function_call: None,
+        },
     ];
 
     let request = CreateChatCompletionRequest {
@@ -266,13 +286,14 @@ async fn explain_contract(
 
     if let Some(choice) = response.choices.first() {
         println!("{}", "Contract explanation:".bold());
-        println!("{}", choice.message.content);
+        let content = choice.message.content.clone().unwrap_or_default();
+        println!("{}", content);
     }
 
     Ok(())
 }
 
-async fn optimize_contract(client: &Client, file: &str, output: Option<&str>) -> Result<()> {
+async fn optimize_contract(client: &Client<OpenAIConfig>, file: &str, output: Option<&str>) -> Result<()> {
     println!("{} Optimizing contract...", "⚡".cyan());
 
     let code = std::fs::read_to_string(file).context("Failed to read contract file")?;
@@ -280,14 +301,18 @@ async fn optimize_contract(client: &Client, file: &str, output: Option<&str>) ->
     let system_prompt = "You are a Soroban optimization expert. Optimize the provided Soroban contract code for gas efficiency and performance while maintaining the same functionality. Return only the optimized code without markdown formatting.";
 
     let messages = vec![
-        ChatCompletionRequestMessage::System(ChatCompletionRequestSystemMessage {
-            content: system_prompt.to_string(),
+        ChatCompletionRequestMessage {
+            role: Role::System,
+            content: Some(system_prompt.to_string()),
             name: None,
-        }),
-        ChatCompletionRequestMessage::User(ChatCompletionRequestUserMessage {
-            content: format!("Optimize this Soroban contract:\n\n{}", code),
+            function_call: None,
+        },
+        ChatCompletionRequestMessage {
+            role: Role::User,
+            content: Some(format!("Optimize this Soroban contract:\n\n{}", code)),
             name: None,
-        }),
+            function_call: None,
+        },
     ];
 
     let request = CreateChatCompletionRequest {
@@ -299,7 +324,8 @@ async fn optimize_contract(client: &Client, file: &str, output: Option<&str>) ->
     let response = client.chat().create(request).await?;
 
     if let Some(choice) = response.choices.first() {
-        let optimized_code = choice.message.content.trim();
+        let optimized_code = choice.message.content.clone().unwrap_or_default();
+        let optimized_code = optimized_code.trim();
         
         if let Some(output_path) = output {
             std::fs::write(output_path, optimized_code)

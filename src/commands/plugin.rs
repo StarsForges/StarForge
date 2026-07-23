@@ -1,9 +1,9 @@
 use crate::plugins::interface::CORE_VERSION;
 use crate::plugins::manifest;
 use crate::plugins::registry::{self, RegisteredCommand, TrustLevel, UninstallOptions};
-use crate::plugins::{PluginLoadError, PluginManager};
+use crate::plugins::{PluginLoadError, PluginManager, Capability};
 use crate::utils::print as p;
-use anyhow::{Context, Result};
+use anyhow::Result;
 use clap::Subcommand;
 use std::path::Path;
 use std::path::PathBuf;
@@ -151,6 +151,26 @@ fn install(name: String, path: Option<PathBuf>, source: Option<String>, force: b
         }
     };
 
+    let meta = match get_plugin_metadata(&lib_path) {
+        Ok(m) => m,
+        Err(error) => {
+            p::warn(&format!(
+                "Plugin registered without capability discovery: {}",
+                error
+            ));
+            crate::plugins::loader::PluginMetadataDump {
+                name: name.clone(),
+                version: plugin_manifest.version.clone(),
+                description: "".to_string(),
+                capabilities: Vec::new(),
+                commands: discovered_commands.clone(),
+            }
+        }
+    };
+
+    let approved_caps = audit_and_approve_capabilities(&name, &meta.capabilities)?;
+    let content_hash = crate::plugins::loader::calculate_sha256(&lib_path).ok();
+
     registry::install_plugin(
         &name,
         &lib_path,
@@ -158,6 +178,8 @@ fn install(name: String, path: Option<PathBuf>, source: Option<String>, force: b
         &plugin_manifest.starforge_version,
         &plugin_manifest.version,
         discovered_commands.clone(),
+        approved_caps,
+        content_hash,
     )?;
 
     p::header("Plugin Install");
@@ -435,13 +457,24 @@ fn update(name: Option<String>, yes: bool) -> Result<()> {
 
             match status {
                 Ok(s) if s.success() => {
+                    let path = std::path::Path::new(&pl.path);
+                    let meta = get_plugin_metadata(path).ok();
+                    let caps = if let Some(ref m) = meta {
+                        audit_and_approve_capabilities(&pl.name, &m.capabilities)?
+                    } else {
+                        pl.capabilities.clone()
+                    };
+                    let content_hash = crate::plugins::loader::calculate_sha256(path).ok();
+
                     registry::install_plugin(
                         &pl.name,
-                        std::path::Path::new(&pl.path),
+                        path,
                         &pl.source,
                         &pl.starforge_version,
                         &pl.plugin_version,
                         pl.commands.clone(),
+                        caps,
+                        content_hash,
                     )?;
                     p::success(&format!("  '{}' updated via cargo install", pl.name));
                     updated += 1;
@@ -481,15 +514,26 @@ fn update(name: Option<String>, yes: bool) -> Result<()> {
 
                     if modified > installed_epoch {
                         // Library on disk is newer — refresh the registry entry.
+                        let path = std::path::Path::new(&pl.path);
+                        let meta = get_plugin_metadata(path).ok();
+                        let caps = if let Some(ref m) = meta {
+                            audit_and_approve_capabilities(&pl.name, &m.capabilities)?
+                        } else {
+                            pl.capabilities.clone()
+                        };
+                        let content_hash = crate::plugins::loader::calculate_sha256(path).ok();
                         let cmds = discover_commands_from_library(&pl.path)
                             .unwrap_or_else(|_| pl.commands.clone());
+
                         registry::install_plugin(
                             &pl.name,
-                            std::path::Path::new(&pl.path),
+                            path,
                             &pl.source,
                             &pl.starforge_version,
                             &pl.plugin_version,
                             cmds,
+                            caps,
+                            content_hash,
                         )?;
                         p::success(&format!(
                             "  '{}' library on disk is newer — registry refreshed.",
@@ -883,20 +927,58 @@ fn print_audit_report(report: &AuditReport) {
 }
 
 fn discover_commands_from_library(path: &str) -> Result<Vec<RegisteredCommand>> {
-    let mut pm = PluginManager::new();
-    unsafe {
-        pm.load_plugin(path)
-            .with_context(|| format!("Failed to load plugin from {}", path))?;
-    }
-    Ok(pm
-        .list_commands()
-        .into_iter()
-        .map(|c| RegisteredCommand {
-            name: c.name,
-            description: c.description,
-        })
-        .collect())
+    let meta = get_plugin_metadata(Path::new(path))?;
+    Ok(meta.commands)
 }
+
+fn get_plugin_metadata(library_path: &Path) -> Result<crate::plugins::loader::PluginMetadataDump> {
+    let output = std::process::Command::new(std::env::current_exe()?)
+        .arg("__dump_plugin_metadata")
+        .arg(library_path)
+        .output()?;
+    if !output.status.success() {
+        let err = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!("Failed to dump plugin metadata: {}", err);
+    }
+    let meta: crate::plugins::loader::PluginMetadataDump = serde_json::from_slice(&output.stdout)?;
+    Ok(meta)
+}
+
+fn audit_and_approve_capabilities(name: &str, capabilities: &[Capability]) -> Result<Vec<Capability>> {
+    if capabilities.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    p::header("Plugin Capability Audit");
+    p::warn(&format!(
+        "Plugin '{}' requests the following permissions/capabilities:",
+        name
+    ));
+    for cap in capabilities {
+        p::warn(&format!("  • {}: {}", cap.name(), cap.description()));
+    }
+    println!();
+
+    use std::io::IsTerminal;
+    let approved = if std::io::stdin().is_terminal() {
+        let theme = dialoguer::theme::ColorfulTheme::default();
+        dialoguer::Confirm::with_theme(&theme)
+            .with_prompt("Do you want to grant these capabilities and load/install the plugin?")
+            .default(false)
+            .interact()
+            .unwrap_or(false)
+    } else {
+        p::warn("Non-interactive terminal detected: auto-approving capabilities.");
+        true
+    };
+
+    if !approved {
+        anyhow::bail!("Capability approval declined by user");
+    }
+
+    Ok(capabilities.to_vec())
+}
+
 
 fn commands(name: Option<String>) -> Result<()> {
     p::header("Plugin Commands");

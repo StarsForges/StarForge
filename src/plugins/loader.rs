@@ -37,6 +37,19 @@ pub enum PluginLoadError {
     },
     /// The `starforge-plugin.toml` manifest failed validation.
     ManifestIncompatible { path: String, detail: String },
+    /// The plugin source is unknown/untrusted and loading is blocked under the hardened security policy.
+    UntrustedBlocked { path: String },
+    /// The content hash does not match the approved hash in the registry.
+    HashMismatch {
+        path: String,
+        expected: String,
+        actual: String,
+    },
+    /// The plugin requested capabilities that were not approved.
+    UnauthorizedCapabilities {
+        path: String,
+        missing: Vec<crate::plugins::Capability>,
+    },
 }
 
 impl PluginLoadError {
@@ -48,6 +61,9 @@ impl PluginLoadError {
             Self::AbiBuildMismatch { .. } => "abi_mismatch",
             Self::UnsupportedCoreVersion { .. } => "unsupported_core_version",
             Self::ManifestIncompatible { .. } => "manifest_incompatible",
+            Self::UntrustedBlocked { .. } => "untrusted_blocked",
+            Self::HashMismatch { .. } => "hash_mismatch",
+            Self::UnauthorizedCapabilities { .. } => "unauthorized_capabilities",
         }
     }
 
@@ -84,6 +100,23 @@ impl PluginLoadError {
                 "Plugin manifest incompatible for '{path}'.\n  \
                  Detail: {detail}\n  \
                  Fix: Update 'starforge-plugin.toml' to match the running StarForge version.",
+            ),
+            Self::UntrustedBlocked { path } => format!(
+                "Blocked untrusted plugin '{path}'.\n  \
+                 Cause: The plugin source is unknown/untrusted and the security policy blocks it.\n  \
+                 Fix: Re-install the plugin from a trusted source or with explicit local path approval.",
+            ),
+            Self::HashMismatch { path, expected, actual } => format!(
+                "Content hash mismatch for '{path}'.\n  \
+                 Expected approved hash: {expected}\n  \
+                 Actual library hash   : {actual}\n  \
+                 Fix: The library file has been modified. Re-approve or re-install the plugin.",
+            ),
+            Self::UnauthorizedCapabilities { path, missing } => format!(
+                "Unauthorized capabilities requested by '{path}'.\n  \
+                 Missing approvals: {}\n  \
+                 Fix: Re-install and explicitly approve these capabilities.",
+                missing.iter().map(|c| c.name()).collect::<Vec<_>>().join(", ")
             ),
         }
     }
@@ -136,6 +169,38 @@ impl PluginManager {
     ) -> std::result::Result<(), PluginLoadError> {
         let path_ref = path.as_ref();
         let path_display = path_ref.to_string_lossy().to_string();
+
+        // ── Trust & Hash Verification (if registry knows this plugin) ──────────
+        let reg = crate::plugins::registry::load_registry().unwrap_or_default();
+        let plugin_meta = reg.plugins.iter().find(|p| {
+            Path::new(&p.path) == Path::new(path_ref)
+        });
+
+        let config = crate::utils::config::load().unwrap_or_default();
+
+        if let Some(meta) = plugin_meta {
+            // Check if Unknown source trust
+            if meta.trust == crate::plugins::registry::TrustLevel::Unknown {
+                return Err(PluginLoadError::UntrustedBlocked {
+                    path: path_display,
+                });
+            }
+
+            // Check require_approval and hash mismatch
+            if config.plugin_trust.require_approval {
+                if let Some(ref approved_hash) = meta.content_hash {
+                    if let Ok(actual_hash) = calculate_sha256(Path::new(path_ref)) {
+                        if actual_hash != *approved_hash {
+                            return Err(PluginLoadError::HashMismatch {
+                                path: path_display,
+                                expected: approved_hash.clone(),
+                                actual: actual_hash,
+                            });
+                        }
+                    }
+                }
+            }
+        }
 
         // ── Open the shared library ──────────────────────────────────────────
         let library = Library::new(path_ref).map_err(|e| PluginLoadError::InvalidLibrary {
@@ -239,6 +304,210 @@ impl PluginRegistrar for ProxyRegistrar {
     fn register_plugin(&mut self, plugin: Box<dyn Plugin>) {
         self.plugins.push(plugin);
     }
+}
+
+pub fn calculate_sha256(path: &Path) -> Result<String, std::io::Error> {
+    use sha2::{Digest, Sha256};
+    use std::io::Read;
+
+    let mut file = std::fs::File::open(path)?;
+    let mut hasher = Sha256::new();
+    let mut buffer = vec![0; 4096];
+    loop {
+        let count = file.read(&mut buffer)?;
+        if count == 0 {
+            break;
+        }
+        hasher.update(&buffer[..count]);
+    }
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct PluginMetadataDump {
+    pub name: String,
+    pub version: String,
+    pub description: String,
+    pub capabilities: Vec<crate::plugins::Capability>,
+    pub commands: Vec<crate::plugins::registry::RegisteredCommand>,
+}
+
+pub fn dump_plugin_metadata_internal(library_path: &str) -> Result<()> {
+    let path = std::path::Path::new(library_path);
+    let library = unsafe { Library::new(path) }
+        .map_err(|e| anyhow::anyhow!("Failed to load library: {}", e))?;
+
+    let decl: Symbol<*mut PluginDeclaration> = unsafe {
+        library.get(b"PLUGIN_DECLARATION")
+    }.map_err(|e| anyhow::anyhow!("Failed to find PLUGIN_DECLARATION: {}", e))?;
+
+    let decl = unsafe { &**decl };
+
+    let mut registrar = ProxyRegistrar::new();
+    unsafe {
+        (decl.register)(&mut registrar);
+    }
+
+    let mut commands = Vec::new();
+    let mut name = String::new();
+    let mut version = String::new();
+    let mut description = String::new();
+
+    for plugin in registrar.plugins {
+        name = plugin.name().to_string();
+        version = plugin.version().to_string();
+        description = plugin.description().to_string();
+        for cmd in plugin.commands() {
+            commands.push(crate::plugins::registry::RegisteredCommand {
+                name: cmd.name,
+                description: cmd.description,
+            });
+        }
+    }
+
+    let caps = decl.capabilities.to_vec();
+
+    let dump = PluginMetadataDump {
+        name,
+        version,
+        description,
+        capabilities: caps,
+        commands,
+    };
+
+    println!("{}", serde_json::to_string(&dump)?);
+
+    Ok(())
+}
+
+pub fn run_plugin_library_internal(args: &[String]) -> Result<()> {
+    if args.len() < 3 {
+        anyhow::bail!("Invalid arguments for internal plugin execution");
+    }
+    let library_path = &args[0];
+    let plugin_name = &args[1];
+    let approved_caps_str = &args[2];
+
+    let plugin_args = if args.len() > 4 && args[3] == "--" {
+        &args[4..]
+    } else if args.len() > 3 {
+        &args[3..]
+    } else {
+        &[]
+    };
+
+    let mut approved_caps = Vec::new();
+    if approved_caps_str != "none" {
+        for cap_name in approved_caps_str.split(',') {
+            match cap_name {
+                "NetworkAccess" => approved_caps.push(crate::plugins::Capability::NetworkAccess),
+                "FileSystem" => approved_caps.push(crate::plugins::Capability::FileSystem),
+                "Config" => approved_caps.push(crate::plugins::Capability::Config),
+                _ => {}
+            }
+        }
+    }
+
+    let path = std::path::Path::new(library_path);
+    let library = unsafe { Library::new(path) }
+        .map_err(|e| anyhow::anyhow!("Failed to load library: {}", e))?;
+
+    let decl: Symbol<*mut PluginDeclaration> = unsafe {
+        library.get(b"PLUGIN_DECLARATION")
+    }.map_err(|e| anyhow::anyhow!("Failed to find PLUGIN_DECLARATION: {}", e))?;
+
+    let decl = unsafe { &**decl };
+
+    #[cfg(target_os = "linux")]
+    apply_sandbox_filters(&approved_caps)?;
+
+    let mut registrar = ProxyRegistrar::new();
+    unsafe {
+        (decl.register)(&mut registrar);
+    }
+
+    for plugin in registrar.plugins {
+        if plugin.name() == plugin_name {
+            plugin.on_load();
+            let result = plugin.execute(plugin_args);
+            plugin.on_unload();
+            match result {
+                Ok(()) => return Ok(()),
+                Err(e) => anyhow::bail!("{}", e),
+            }
+        }
+    }
+
+    anyhow::bail!("Plugin '{}' not found in library", plugin_name);
+}
+
+#[cfg(target_os = "linux")]
+fn apply_sandbox_filters(approved_caps: &[crate::plugins::Capability]) -> Result<()> {
+    use seccompiler::{BpfProgram, SeccompAction, SeccompFilter};
+    use std::collections::BTreeMap;
+    use std::convert::TryInto;
+
+    let has_network = approved_caps.contains(&crate::plugins::Capability::NetworkAccess);
+    let has_filesystem = approved_caps.contains(&crate::plugins::Capability::FileSystem) 
+        || approved_caps.contains(&crate::plugins::Capability::Config);
+
+    let mut rules = BTreeMap::new();
+
+    if !has_network {
+        let network_syscalls = [
+            libc::SYS_socket,
+            libc::SYS_connect,
+            libc::SYS_accept,
+            libc::SYS_accept4,
+            libc::SYS_bind,
+            libc::SYS_listen,
+            libc::SYS_sendto,
+            libc::SYS_recvfrom,
+            libc::SYS_sendmsg,
+            libc::SYS_recvmsg,
+        ];
+        for &sys in &network_syscalls {
+            rules.insert(sys as i64, vec![]);
+        }
+    }
+
+    if !has_filesystem {
+        let fs_syscalls = [
+            libc::SYS_open,
+            libc::SYS_openat,
+            libc::SYS_creat,
+            libc::SYS_mkdir,
+            libc::SYS_mkdirat,
+            libc::SYS_rmdir,
+            libc::SYS_unlink,
+            libc::SYS_unlinkat,
+            libc::SYS_rename,
+            libc::SYS_renameat,
+        ];
+        for &sys in &fs_syscalls {
+            rules.insert(sys as i64, vec![]);
+        }
+    }
+
+    if !rules.is_empty() {
+        let arch = std::env::consts::ARCH.try_into()
+            .map_err(|_| anyhow::anyhow!("Unsupported architecture for seccomp"))?;
+        
+        let filter = SeccompFilter::new(
+            rules,
+            SeccompAction::Allow,
+            SeccompAction::Errno(libc::EACCES as u32),
+            arch,
+        ).map_err(|e| anyhow::anyhow!("Failed to build seccomp filter: {:?}", e))?;
+
+        let bpf_program: BpfProgram = filter.try_into()
+            .map_err(|e| anyhow::anyhow!("Failed to compile BPF: {:?}", e))?;
+
+        seccompiler::apply_filter(&bpf_program)
+            .map_err(|e| anyhow::anyhow!("Failed to apply seccomp filter: {:?}", e))?;
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]

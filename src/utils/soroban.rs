@@ -21,6 +21,20 @@ pub struct SimulationResult {
     pub errors: Vec<String>,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct AuthEntry {
+    pub address: String,
+    pub function: String,
+    pub sub_invocations: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct UpgradeSimulationResult {
+    pub fee: u64,
+    pub auth_entries: Vec<AuthEntry>,
+    pub errors: Vec<String>,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TransactionResult {
     pub hash: String,
