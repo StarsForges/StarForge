@@ -238,6 +238,20 @@ pub fn fetch_account_sequence(public_key: &str, network: &str) -> Result<i64> {
         .with_context(|| format!("Failed to parse sequence string '{}'", account.sequence))
 }
 
+/// Fetch an account's on-chain signers and thresholds from Horizon.
+pub fn fetch_account_signers(public_key: &str, network: &str) -> Result<AccountSignersInfo> {
+    let account = fetch_account(public_key, network)?;
+    let thresholds = account.thresholds.unwrap_or(AccountThresholds {
+        low: 0,
+        med: 0,
+        high: 0,
+    });
+    Ok(AccountSignersInfo {
+        signers: account.signers,
+        thresholds,
+    })
+}
+
 pub fn check_network(network: &str) -> bool {
     if let Ok(client) = HorizonClient::for_network(network) {
         client
@@ -789,6 +803,7 @@ mod tests {
                 plugin_trust: Default::default(),
                 telemetry_enabled: Some(false),
                 wallet_encryption: None,
+                ai_telemetry_enabled: Some(false),
             })
             .expect("save config");
 

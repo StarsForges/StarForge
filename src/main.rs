@@ -11,6 +11,7 @@ mod commands;
 pub use starforge::plugins;
 mod utils;
 
+use anyhow::Context;
 use clap::{Parser, Subcommand};
 use colored::*;
 
@@ -113,7 +114,6 @@ enum Commands {
     Diagnostics(commands::diagnostics::DiagnosticsArgs),
 
     /// AI-powered development assistance for Soroban contracts
-    #[command(subcommand)]
     Ai(commands::ai::AiArgs),
 
     /// Execute an installed plugin command (e.g. `starforge defi ...`)
@@ -203,11 +203,9 @@ fn main() {
         Commands::Upgrade(cmd) => commands::upgrade::handle(cmd),
         Commands::Lint(args) => commands::lint::handle(args),
         Commands::Diagnostics(args) => commands::diagnostics::handle(args),
-        Commands::Ai(args) => {
-            tokio::runtime::Runtime::new()
-                .context("Failed to create async runtime")?
-                .block_on(commands::ai::handle(args))
-        }
+        Commands::Ai(args) => tokio::runtime::Runtime::new()
+            .context("Failed to create async runtime")
+            .and_then(|rt| rt.block_on(commands::ai::handle(args))),
         Commands::External(args) => handle_external_plugin(args),
     };
     let duration = start.elapsed();
