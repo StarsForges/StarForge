@@ -202,6 +202,9 @@ pub struct Config {
     pub plugin_trust: PluginTrustConfig,
     pub telemetry_enabled: Option<bool>,
     pub wallet_encryption: Option<crypto::KdfOptions>,
+    /// Opt-out switch for AI-specific telemetry (API calls, tokens, cost, latency).
+    /// Independent of `telemetry_enabled`, which covers general CLI command usage.
+    pub ai_telemetry_enabled: Option<bool>,
 }
 
 /// The current on-disk config schema version, as a string.
@@ -404,6 +407,7 @@ impl Default for Config {
             plugin_trust: PluginTrustConfig::default(),
             telemetry_enabled: Some(true),
             wallet_encryption: None,
+            ai_telemetry_enabled: Some(true),
         }
     }
 }

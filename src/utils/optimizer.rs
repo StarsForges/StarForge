@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -154,4 +155,100 @@ fn run_external_optimizer(input: &Path, output: &Path) -> Result<String> {
         "No external Soroban optimizer completed successfully ({})",
         errors.join("; ")
     )
+}
+
+// ── Source-level optimization support (AI contract optimization) ──────────────
+
+/// A rough, deterministic proxy for the relative "weight" of a Soroban
+/// contract's Rust source, used to compare before/after optimization passes
+/// when no compiled `.wasm` is available. This is a heuristic estimate, not
+/// a substitute for real on-chain gas profiling (see `starforge gas`).
+pub fn estimate_source_gas_score(code: &str) -> u32 {
+    let storage_ops = count_occurrences(code, ".storage()");
+    let loops = count_occurrences(code, "for ") + count_occurrences(code, "while ");
+    let cross_contract_calls = count_occurrences(code, "invoke_contract");
+    let clones = count_occurrences(code, ".clone()");
+    let lines = code.lines().filter(|l| !l.trim().is_empty()).count() as u32;
+
+    storage_ops * 100 + loops * 20 + cross_contract_calls * 50 + clones * 5 + lines
+}
+
+fn count_occurrences(haystack: &str, needle: &str) -> u32 {
+    haystack.matches(needle).count() as u32
+}
+
+/// Percent change from `before` to `after` (positive = reduction).
+pub fn percent_change(before: u32, after: u32) -> f64 {
+    if before == 0 {
+        return 0.0;
+    }
+    (before as f64 - after as f64) / before as f64 * 100.0
+}
+
+/// Extract the names of all `pub fn` items declared in a Rust source string.
+/// Used as a coarse safety check: an AI-optimized contract that drops a
+/// public function signature likely broke the contract's interface.
+pub fn extract_pub_fn_names(code: &str) -> BTreeSet<String> {
+    let mut names = BTreeSet::new();
+    let marker = "pub fn ";
+    let mut search_from = 0;
+    while let Some(rel_pos) = code[search_from..].find(marker) {
+        let start = search_from + rel_pos + marker.len();
+        let rest = &code[start..];
+        let end = rest
+            .find(|c: char| c == '(' || c == '<' || c.is_whitespace())
+            .unwrap_or(rest.len());
+        let name = rest[..end].trim();
+        if !name.is_empty() {
+            names.insert(name.to_string());
+        }
+        search_from = start;
+    }
+    names
+}
+
+#[cfg(test)]
+mod source_optimization_tests {
+    use super::*;
+
+    #[test]
+    fn gas_score_increases_with_storage_and_loops() {
+        let plain = "pub fn noop() {}";
+        let heavy = r#"
+            pub fn heavy(env: &Env) {
+                for i in 0..10 {
+                    env.storage().persistent().set(&i, &i);
+                }
+            }
+        "#;
+        assert!(estimate_source_gas_score(heavy) > estimate_source_gas_score(plain));
+    }
+
+    #[test]
+    fn percent_change_reports_reduction() {
+        assert_eq!(percent_change(200, 100), 50.0);
+        assert_eq!(percent_change(0, 100), 0.0);
+        assert!(percent_change(100, 150) < 0.0);
+    }
+
+    #[test]
+    fn extract_pub_fn_names_finds_all_signatures() {
+        let code = r#"
+            pub fn transfer(env: Env, to: Address, amount: i128) {}
+            fn internal_helper() {}
+            pub fn balance(env: Env, id: Address) -> i128 { 0 }
+        "#;
+        let names = extract_pub_fn_names(code);
+        assert_eq!(names.len(), 2);
+        assert!(names.contains("transfer"));
+        assert!(names.contains("balance"));
+        assert!(!names.contains("internal_helper"));
+    }
+
+    #[test]
+    fn extract_pub_fn_names_handles_generics() {
+        let code = "pub fn generic<T>(x: T) -> T { x }";
+        let names = extract_pub_fn_names(code);
+        assert!(names.contains("generic"));
+    }
 }
