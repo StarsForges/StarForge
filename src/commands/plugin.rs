@@ -1,7 +1,7 @@
 use crate::plugins::interface::CORE_VERSION;
 use crate::plugins::manifest;
 use crate::plugins::registry::{self, RegisteredCommand, TrustLevel, UninstallOptions};
-use crate::plugins::{PluginLoadError, PluginManager, Capability};
+use crate::plugins::{Capability, PluginLoadError, PluginManager};
 use crate::utils::print as p;
 use anyhow::Result;
 use clap::Subcommand;
@@ -944,7 +944,10 @@ fn get_plugin_metadata(library_path: &Path) -> Result<crate::plugins::loader::Pl
     Ok(meta)
 }
 
-fn audit_and_approve_capabilities(name: &str, capabilities: &[Capability]) -> Result<Vec<Capability>> {
+fn audit_and_approve_capabilities(
+    name: &str,
+    capabilities: &[Capability],
+) -> Result<Vec<Capability>> {
     if capabilities.is_empty() {
         return Ok(Vec::new());
     }
@@ -978,7 +981,6 @@ fn audit_and_approve_capabilities(name: &str, capabilities: &[Capability]) -> Re
 
     Ok(capabilities.to_vec())
 }
-
 
 fn commands(name: Option<String>) -> Result<()> {
     p::header("Plugin Commands");

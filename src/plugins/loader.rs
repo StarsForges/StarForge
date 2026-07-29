@@ -172,18 +172,17 @@ impl PluginManager {
 
         // ── Trust & Hash Verification (if registry knows this plugin) ──────────
         let reg = crate::plugins::registry::load_registry().unwrap_or_default();
-        let plugin_meta = reg.plugins.iter().find(|p| {
-            Path::new(&p.path) == Path::new(path_ref)
-        });
+        let plugin_meta = reg
+            .plugins
+            .iter()
+            .find(|p| Path::new(&p.path) == Path::new(path_ref));
 
         let config = crate::utils::config::load().unwrap_or_default();
 
         if let Some(meta) = plugin_meta {
             // Check if Unknown source trust
             if meta.trust == crate::plugins::registry::TrustLevel::Unknown {
-                return Err(PluginLoadError::UntrustedBlocked {
-                    path: path_display,
-                });
+                return Err(PluginLoadError::UntrustedBlocked { path: path_display });
             }
 
             // Check require_approval and hash mismatch
@@ -337,9 +336,8 @@ pub fn dump_plugin_metadata_internal(library_path: &str) -> Result<()> {
     let library = unsafe { Library::new(path) }
         .map_err(|e| anyhow::anyhow!("Failed to load library: {}", e))?;
 
-    let decl: Symbol<*mut PluginDeclaration> = unsafe {
-        library.get(b"PLUGIN_DECLARATION")
-    }.map_err(|e| anyhow::anyhow!("Failed to find PLUGIN_DECLARATION: {}", e))?;
+    let decl: Symbol<*mut PluginDeclaration> = unsafe { library.get(b"PLUGIN_DECLARATION") }
+        .map_err(|e| anyhow::anyhow!("Failed to find PLUGIN_DECLARATION: {}", e))?;
 
     let decl = unsafe { &**decl };
 
@@ -412,9 +410,8 @@ pub fn run_plugin_library_internal(args: &[String]) -> Result<()> {
     let library = unsafe { Library::new(path) }
         .map_err(|e| anyhow::anyhow!("Failed to load library: {}", e))?;
 
-    let decl: Symbol<*mut PluginDeclaration> = unsafe {
-        library.get(b"PLUGIN_DECLARATION")
-    }.map_err(|e| anyhow::anyhow!("Failed to find PLUGIN_DECLARATION: {}", e))?;
+    let decl: Symbol<*mut PluginDeclaration> = unsafe { library.get(b"PLUGIN_DECLARATION") }
+        .map_err(|e| anyhow::anyhow!("Failed to find PLUGIN_DECLARATION: {}", e))?;
 
     let decl = unsafe { &**decl };
 
@@ -448,7 +445,7 @@ fn apply_sandbox_filters(approved_caps: &[crate::plugins::Capability]) -> Result
     use std::convert::TryInto;
 
     let has_network = approved_caps.contains(&crate::plugins::Capability::NetworkAccess);
-    let has_filesystem = approved_caps.contains(&crate::plugins::Capability::FileSystem) 
+    let has_filesystem = approved_caps.contains(&crate::plugins::Capability::FileSystem)
         || approved_caps.contains(&crate::plugins::Capability::Config);
 
     let mut rules = BTreeMap::new();
@@ -467,7 +464,7 @@ fn apply_sandbox_filters(approved_caps: &[crate::plugins::Capability]) -> Result
             libc::SYS_recvmsg,
         ];
         for &sys in &network_syscalls {
-            rules.insert(sys as i64, vec![]);
+            rules.insert(sys, vec![]);
         }
     }
 
@@ -485,22 +482,25 @@ fn apply_sandbox_filters(approved_caps: &[crate::plugins::Capability]) -> Result
             libc::SYS_renameat,
         ];
         for &sys in &fs_syscalls {
-            rules.insert(sys as i64, vec![]);
+            rules.insert(sys, vec![]);
         }
     }
 
     if !rules.is_empty() {
-        let arch = std::env::consts::ARCH.try_into()
+        let arch = std::env::consts::ARCH
+            .try_into()
             .map_err(|_| anyhow::anyhow!("Unsupported architecture for seccomp"))?;
-        
+
         let filter = SeccompFilter::new(
             rules,
             SeccompAction::Allow,
             SeccompAction::Errno(libc::EACCES as u32),
             arch,
-        ).map_err(|e| anyhow::anyhow!("Failed to build seccomp filter: {:?}", e))?;
+        )
+        .map_err(|e| anyhow::anyhow!("Failed to build seccomp filter: {:?}", e))?;
 
-        let bpf_program: BpfProgram = filter.try_into()
+        let bpf_program: BpfProgram = filter
+            .try_into()
             .map_err(|e| anyhow::anyhow!("Failed to compile BPF: {:?}", e))?;
 
         seccompiler::apply_filter(&bpf_program)

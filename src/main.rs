@@ -256,9 +256,7 @@ fn handle_external_plugin(args: Vec<String>) -> anyhow::Result<()> {
 
     let reg = plugins::registry::load_registry().unwrap_or_default();
     if reg.plugins.is_empty() {
-        anyhow::bail!(
-            "No plugins registered. Use: starforge plugin install <name> --path <lib>"
-        );
+        anyhow::bail!("No plugins registered. Use: starforge plugin install <name> --path <lib>");
     }
 
     // Check if the command matches any registered plugin command before loading .so files.
@@ -279,9 +277,11 @@ fn handle_external_plugin(args: Vec<String>) -> anyhow::Result<()> {
         anyhow::bail!("Unknown command '{}'.\n\n{}", plugin_name, hint);
     }
 
-    let target_plugin = reg.plugins.iter().find(|p| {
-        p.commands.iter().any(|c| c.name == *plugin_name)
-    }).ok_or_else(|| anyhow::anyhow!("Plugin command '{}' not found in registry", plugin_name))?;
+    let target_plugin = reg
+        .plugins
+        .iter()
+        .find(|p| p.commands.iter().any(|c| c.name == *plugin_name))
+        .ok_or_else(|| anyhow::anyhow!("Plugin command '{}' not found in registry", plugin_name))?;
 
     // Elevate Unknown plugins to blocked status
     if target_plugin.trust == plugins::registry::TrustLevel::Unknown {
@@ -294,8 +294,9 @@ fn handle_external_plugin(args: Vec<String>) -> anyhow::Result<()> {
 
     let config = utils::config::load().unwrap_or_default();
     if config.plugin_trust.require_approval {
-        let actual_hash = plugins::loader::calculate_sha256(std::path::Path::new(&target_plugin.path))
-            .context("Failed to calculate plugin content hash")?;
+        let actual_hash =
+            plugins::loader::calculate_sha256(std::path::Path::new(&target_plugin.path))
+                .context("Failed to calculate plugin content hash")?;
         if target_plugin.content_hash.as_ref() != Some(&actual_hash) {
             anyhow::bail!(
                 "Execution blocked: plugin '{}' content hash mismatch or not approved.\n\
@@ -311,7 +312,9 @@ fn handle_external_plugin(args: Vec<String>) -> anyhow::Result<()> {
     let caps_str = if target_plugin.capabilities.is_empty() {
         "none".to_string()
     } else {
-        target_plugin.capabilities.iter()
+        target_plugin
+            .capabilities
+            .iter()
             .map(|c| c.name())
             .collect::<Vec<_>>()
             .join(",")

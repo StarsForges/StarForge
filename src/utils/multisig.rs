@@ -6,15 +6,12 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use stellar_strkey::ed25519::{
-    PrivateKey as StellarPrivateKey, PublicKey as StellarPublicKey,
-};
+use stellar_strkey::ed25519::{PrivateKey as StellarPrivateKey, PublicKey as StellarPublicKey};
 use stellar_xdr::curr::{
     BytesM, DecoratedSignature, Hash, Limits, Memo, MuxedAccount, Operation, OperationBody,
-    Preconditions, ReadXdr, SequenceNumber, SetOptionsOp, Signature as XdrSignature,
-    SignatureHint, Signer as XdrSigner, SignerKey, Transaction, TransactionEnvelope,
-    TransactionExt, TransactionSignaturePayload, TransactionSignaturePayloadTaggedTransaction,
-    WriteXdr,
+    Preconditions, ReadXdr, SequenceNumber, SetOptionsOp, Signature as XdrSignature, SignatureHint,
+    Signer as XdrSigner, SignerKey, Transaction, TransactionEnvelope, TransactionExt,
+    TransactionSignaturePayload, TransactionSignaturePayloadTaggedTransaction, WriteXdr,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -378,7 +375,11 @@ pub fn sign_transaction_envelope(
     };
 
     append_decorated_signature(&mut envelope, decorated)?;
-    Ok((encode_transaction_envelope(&envelope)?, signer_public_key, true))
+    Ok((
+        encode_transaction_envelope(&envelope)?,
+        signer_public_key,
+        true,
+    ))
 }
 
 fn set_options_operation(set_options: SetOptionsOp) -> Operation {
@@ -447,14 +448,8 @@ fn transaction_signature_hash(envelope: &TransactionEnvelope, network: &str) -> 
 
 fn envelope_has_signature_hint(envelope: &TransactionEnvelope, hint: &SignatureHint) -> bool {
     match envelope {
-        TransactionEnvelope::TxV0(tx_v0) => tx_v0
-            .signatures
-            .iter()
-            .any(|sig| sig.hint.0 == hint.0),
-        TransactionEnvelope::Tx(tx_v1) => tx_v1
-            .signatures
-            .iter()
-            .any(|sig| sig.hint.0 == hint.0),
+        TransactionEnvelope::TxV0(tx_v0) => tx_v0.signatures.iter().any(|sig| sig.hint.0 == hint.0),
+        TransactionEnvelope::Tx(tx_v1) => tx_v1.signatures.iter().any(|sig| sig.hint.0 == hint.0),
         TransactionEnvelope::TxFeeBump(fee_bump) => {
             fee_bump.signatures.iter().any(|sig| sig.hint.0 == hint.0)
         }

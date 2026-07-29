@@ -378,7 +378,8 @@ fn handle_propose(args: ProposeArgs) -> Result<()> {
 
     // ── Upgrade simulation + auth display ─────────────────────────────────
     p::step(4, 5, "Simulating upgrade transaction…");
-    match soroban::simulate_upgrade_transaction(&args.contract_id, &new_hash, wallet, &args.network) {
+    match soroban::simulate_upgrade_transaction(&args.contract_id, &new_hash, wallet, &args.network)
+    {
         Ok(sim) => {
             p::kv("Estimated fee", &format!("{} stroops", sim.fee));
             if !sim.auth_entries.is_empty() {
@@ -667,7 +668,8 @@ fn handle_execute(args: ExecuteArgs) -> Result<()> {
         p::step(2, 3, "Validating multisig signer weights…");
         match horizon::fetch_account_signers(&wallet.public_key, &args.network) {
             Ok(signer_info) => {
-                let local_keys: Vec<&str> = cfg.wallets.iter().map(|w| w.public_key.as_str()).collect();
+                let local_keys: Vec<&str> =
+                    cfg.wallets.iter().map(|w| w.public_key.as_str()).collect();
                 let available_weight: u32 = signer_info
                     .signers
                     .iter()
@@ -677,7 +679,10 @@ fn handle_execute(args: ExecuteArgs) -> Result<()> {
                 let required = signer_info.thresholds.high;
 
                 p::kv("On-chain high threshold", &required.to_string());
-                p::kv("Available local signer weight", &available_weight.to_string());
+                p::kv(
+                    "Available local signer weight",
+                    &available_weight.to_string(),
+                );
 
                 if required > 0 && available_weight < required {
                     let missing: Vec<String> = signer_info

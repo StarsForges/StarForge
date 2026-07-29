@@ -196,8 +196,7 @@ fn append_event(event: &TelemetryEvent) -> Result<()> {
 
     // Check limits before writing.
     let needs_prune = path.exists()
-        && (fs::metadata(&path)?.len() >= MAX_BYTES
-            || line_count(&path)? >= MAX_ENTRIES);
+        && (fs::metadata(&path)?.len() >= MAX_BYTES || line_count(&path)? >= MAX_ENTRIES);
 
     if needs_prune {
         prune_oldest(&path, MAX_ENTRIES / 2)?;
@@ -257,7 +256,8 @@ mod tests {
     #[test]
     fn event_serialises_to_expected_fields() {
         let ev = make_event("wallet");
-        let json: serde_json::Value = serde_json::from_str(&serde_json::to_string(&ev).unwrap()).unwrap();
+        let json: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string(&ev).unwrap()).unwrap();
         assert_eq!(json["schema_version"], TELEMETRY_SCHEMA_VERSION);
         assert_eq!(json["command"], "wallet");
         assert!(json.get("timestamp").is_some());
@@ -272,7 +272,11 @@ mod tests {
         let path = dir.path().join("test.log");
 
         for i in 0..10usize {
-            let mut f = fs::OpenOptions::new().create(true).append(true).open(&path).unwrap();
+            let mut f = fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&path)
+                .unwrap();
             writeln!(f, "line{}", i).unwrap();
         }
 

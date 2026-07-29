@@ -48,8 +48,12 @@ impl Capability {
     pub fn description(&self) -> &'static str {
         match self {
             Capability::NetworkAccess => "Allows the plugin to make outbound network requests",
-            Capability::FileSystem => "Allows the plugin to read/write files in the local filesystem",
-            Capability::Config => "Allows the plugin to access StarForge wallet credentials and config",
+            Capability::FileSystem => {
+                "Allows the plugin to read/write files in the local filesystem"
+            }
+            Capability::Config => {
+                "Allows the plugin to access StarForge wallet credentials and config"
+            }
         }
     }
 }

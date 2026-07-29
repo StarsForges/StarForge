@@ -53,19 +53,16 @@ fn handle_status() -> Result<()> {
 
     p::header("Telemetry Status");
     p::separator();
+    p::kv("Collection", if enabled { "enabled" } else { "disabled" });
     p::kv(
-        "Collection",
-        if enabled { "enabled" } else { "disabled" },
+        "Schema Version",
+        &telemetry::TELEMETRY_SCHEMA_VERSION.to_string(),
     );
-    p::kv("Schema Version", &telemetry::TELEMETRY_SCHEMA_VERSION.to_string());
     p::kv("Events Stored", &count.to_string());
     p::kv("Log Size", &format!("{:.1} KB", size as f64 / 1024.0));
     p::kv(
         "Limits",
-        &format!(
-            "{} entries / 5 MB",
-            telemetry::MAX_ENTRIES
-        ),
+        &format!("{} entries / 5 MB", telemetry::MAX_ENTRIES),
     );
     if let Some(val) = env_override {
         p::kv("Env Override (STARFORGE_TELEMETRY)", &val);
@@ -97,10 +94,7 @@ fn handle_show(limit: usize) -> Result<()> {
     println!("  {}", "─".repeat(72).dimmed());
 
     for ev in &events {
-        let ts = ev
-            .timestamp
-            .format("%Y-%m-%d %H:%M:%S")
-            .to_string();
+        let ts = ev.timestamp.format("%Y-%m-%d %H:%M:%S").to_string();
         let status = if ev.success {
             "✓ ok".green().to_string()
         } else {
@@ -155,6 +149,9 @@ fn handle_clear(yes: bool) -> Result<()> {
     }
 
     telemetry::clear_log()?;
-    p::success(&format!("Telemetry log cleared ({} events removed).", count));
+    p::success(&format!(
+        "Telemetry log cleared ({} events removed).",
+        count
+    ));
     Ok(())
 }

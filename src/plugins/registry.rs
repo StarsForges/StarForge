@@ -290,6 +290,7 @@ pub fn is_managed_plugin_path(path: &Path) -> bool {
 /// `source` is the URL or identifier where the plugin came from; pass an
 /// empty string when the user supplied `--path` directly.
 /// `commands` is the list of commands the plugin advertises (from `Plugin::commands()`).
+#[allow(clippy::too_many_arguments)]
 pub fn install_plugin(
     name: &str,
     library_path: &Path,
