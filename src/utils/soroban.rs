@@ -27,6 +27,23 @@ pub struct TransactionResult {
     pub return_value: String,
 }
 
+/// Result of simulating a contract upgrade transaction: the estimated fee,
+/// any authorization entries the upgrade requires, and simulation errors.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct UpgradeSimulationResult {
+    pub fee: u64,
+    pub auth_entries: Vec<AuthEntry>,
+    pub errors: Vec<String>,
+}
+
+/// A single authorization requirement surfaced by an upgrade simulation.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AuthEntry {
+    pub address: String,
+    pub function: String,
+    pub sub_invocations: Vec<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ContractInspectResult {
     pub contract_id: String,
@@ -232,22 +249,22 @@ pub fn build_fee_bump_transaction(
     bumped_fee: u64,
 ) -> Result<String> {
     if let Ok(bytes) = BASE64.decode(inner_tx_xdr.trim()) {
-        if let Ok(envelope) = TransactionEnvelope::from_xdr(&bytes, Limits::none()) {
-            if let TransactionEnvelope::Tx(v1_tx) = envelope {
-                if let Ok(sigs) = vec![].try_into() {
-                    let fee_bump = FeeBumpTransactionEnvelope {
-                        tx: FeeBumpTransaction {
-                            fee_source: MuxedAccount::Ed25519(Uint256([0; 32])),
-                            fee: bumped_fee as i64,
-                            inner_tx: FeeBumpTransactionInnerTx::Tx(v1_tx),
-                            ext: FeeBumpTransactionExt::V0,
-                        },
-                        signatures: sigs,
-                    };
-                    let bump_env = TransactionEnvelope::TxFeeBump(fee_bump);
-                    if let Ok(bump_bytes) = bump_env.to_xdr(Limits::none()) {
-                        return Ok(BASE64.encode(bump_bytes));
-                    }
+        if let Ok(TransactionEnvelope::Tx(v1_tx)) =
+            TransactionEnvelope::from_xdr(&bytes, Limits::none())
+        {
+            if let Ok(sigs) = vec![].try_into() {
+                let fee_bump = FeeBumpTransactionEnvelope {
+                    tx: FeeBumpTransaction {
+                        fee_source: MuxedAccount::Ed25519(Uint256([0; 32])),
+                        fee: bumped_fee as i64,
+                        inner_tx: FeeBumpTransactionInnerTx::Tx(v1_tx),
+                        ext: FeeBumpTransactionExt::V0,
+                    },
+                    signatures: sigs,
+                };
+                let bump_env = TransactionEnvelope::TxFeeBump(fee_bump);
+                if let Ok(bump_bytes) = bump_env.to_xdr(Limits::none()) {
+                    return Ok(BASE64.encode(bump_bytes));
                 }
             }
         }
@@ -284,7 +301,8 @@ pub fn poll_transaction_status(
     let poll_interval = std::time::Duration::from_millis(100);
 
     while start.elapsed().as_secs() < timeout_secs {
-        let response_res: Result<serde_json::Value> = rpc_request_with_url(&rpc_url, request.clone());
+        let response_res: Result<serde_json::Value> =
+            rpc_request_with_url(&rpc_url, request.clone());
 
         if let Ok(value) = response_res {
             if let Ok(res) = serde_json::from_value::<GetTransactionResponse>(value) {
@@ -350,8 +368,8 @@ pub fn submit_with_retry(
     let rpc_url = get_rpc_url(network)?;
     let _xdr_args = encode_arguments(args, arg_types)?;
 
-    let mut current_seq = horizon::fetch_account_sequence(&wallet.public_key, network)
-        .unwrap_or(100);
+    let mut current_seq =
+        horizon::fetch_account_sequence(&wallet.public_key, network).unwrap_or(100);
 
     let max_retries = 3;
     let base_fee: u64 = 100000;
@@ -382,7 +400,10 @@ pub fn submit_with_retry(
 
         match result_res {
             Ok(result) => {
-                let status = result.get("status").and_then(|s| s.as_str()).unwrap_or("PENDING");
+                let status = result
+                    .get("status")
+                    .and_then(|s| s.as_str())
+                    .unwrap_or("PENDING");
                 let error_xdr = result
                     .get("errorResultXdr")
                     .and_then(|x| x.as_str())
@@ -390,7 +411,9 @@ pub fn submit_with_retry(
 
                 let parsed_err = parse_tx_result_xdr(error_xdr);
 
-                if status == "ERROR" && (parsed_err.tx_code == "txBAD_SEQ" || error_xdr.contains("txBAD_SEQ")) {
+                if status == "ERROR"
+                    && (parsed_err.tx_code == "txBAD_SEQ" || error_xdr.contains("txBAD_SEQ"))
+                {
                     if attempt < max_retries {
                         p::warn(&format!(
                             "Sequence number stale (txBAD_SEQ). Retrying (attempt {}/{}) with exponential backoff...",
@@ -399,21 +422,32 @@ pub fn submit_with_retry(
                         ));
                         let backoff_ms = 50 * (1 << attempt);
                         std::thread::sleep(std::time::Duration::from_millis(backoff_ms));
-                        if let Ok(latest_seq) = horizon::fetch_account_sequence(&wallet.public_key, network) {
+                        if let Ok(latest_seq) =
+                            horizon::fetch_account_sequence(&wallet.public_key, network)
+                        {
                             current_seq = latest_seq;
                         } else {
                             current_seq += 1;
                         }
                         continue;
                     } else {
-                        anyhow::bail!("Transaction submission failed after {} retries: txBAD_SEQ", max_retries);
+                        anyhow::bail!(
+                            "Transaction submission failed after {} retries: txBAD_SEQ",
+                            max_retries
+                        );
                     }
                 }
 
-                if status == "ERROR" && (parsed_err.tx_code == "txINSUFFICIENT_FEE" || error_xdr.contains("txINSUFFICIENT_FEE")) {
-                    p::warn("Transaction failed due to txINSUFFICIENT_FEE. Applying fee bumping...");
+                if status == "ERROR"
+                    && (parsed_err.tx_code == "txINSUFFICIENT_FEE"
+                        || error_xdr.contains("txINSUFFICIENT_FEE"))
+                {
+                    p::warn(
+                        "Transaction failed due to txINSUFFICIENT_FEE. Applying fee bumping...",
+                    );
                     let bumped_fee = (effective_fee as f64 * fee_multiplier.max(1.5)) as u64;
-                    let bumped_tx_xdr = build_fee_bump_transaction(&signed_tx_xdr, wallet, bumped_fee)?;
+                    let bumped_tx_xdr =
+                        build_fee_bump_transaction(&signed_tx_xdr, wallet, bumped_fee)?;
                     let bump_req = SorobanRpcRequest {
                         jsonrpc: "2.0".to_string(),
                         id: 1,
@@ -448,16 +482,21 @@ pub fn submit_with_retry(
                     ));
                     let backoff_ms = 50 * (1 << attempt);
                     std::thread::sleep(std::time::Duration::from_millis(backoff_ms));
-                    if let Ok(latest_seq) = horizon::fetch_account_sequence(&wallet.public_key, network) {
+                    if let Ok(latest_seq) =
+                        horizon::fetch_account_sequence(&wallet.public_key, network)
+                    {
                         current_seq = latest_seq;
                     } else {
                         current_seq += 1;
                     }
                     continue;
                 } else if err_msg.contains("txINSUFFICIENT_FEE") {
-                    p::warn("Transaction failed due to txINSUFFICIENT_FEE. Applying fee bumping...");
+                    p::warn(
+                        "Transaction failed due to txINSUFFICIENT_FEE. Applying fee bumping...",
+                    );
                     let bumped_fee = (effective_fee as f64 * fee_multiplier.max(1.5)) as u64;
-                    let bumped_tx_xdr = build_fee_bump_transaction(&signed_tx_xdr, wallet, bumped_fee)?;
+                    let bumped_tx_xdr =
+                        build_fee_bump_transaction(&signed_tx_xdr, wallet, bumped_fee)?;
                     let bump_req = SorobanRpcRequest {
                         jsonrpc: "2.0".to_string(),
                         id: 1,
@@ -577,8 +616,13 @@ pub fn fetch_wasm_code(wasm_hash_hex: &str, network: &str) -> Result<Vec<u8>> {
         }),
     };
 
-    let response: GetLedgerEntriesResult = rpc_request_with_url(&rpc_url, request)
-        .with_context(|| format!("Failed to fetch WASM code for hash '{}' on {}", wasm_hash_hex, network))?;
+    let response: GetLedgerEntriesResult =
+        rpc_request_with_url(&rpc_url, request).with_context(|| {
+            format!(
+                "Failed to fetch WASM code for hash '{}' on {}",
+                wasm_hash_hex, network
+            )
+        })?;
 
     let entry = response.entries.into_iter().next().ok_or_else(|| {
         anyhow::anyhow!(
@@ -592,7 +636,8 @@ pub fn fetch_wasm_code(wasm_hash_hex: &str, network: &str) -> Result<Vec<u8>> {
     // In the current mock flow, we return the raw base64-decoded entry XDR.
     // In production, this would parse LedgerEntryData::ContractCode and
     // extract the `code` field.
-    let wasm_bytes = BASE64.decode(&entry.xdr)
+    let wasm_bytes = BASE64
+        .decode(&entry.xdr)
         .with_context(|| "Failed to decode on-chain WASM entry XDR")?;
 
     Ok(wasm_bytes)
@@ -628,8 +673,8 @@ pub fn simulate_upgrade_transaction(
         }),
     };
 
-    let result: serde_json::Value = rpc_request_with_url(&rpc_url, request)
-        .context("Upgrade simulation request failed")?;
+    let result: serde_json::Value =
+        rpc_request_with_url(&rpc_url, request).context("Upgrade simulation request failed")?;
 
     let fee = extract_fee(&result)?;
     let errors = extract_simulation_errors(&result);
@@ -672,7 +717,10 @@ fn extract_auth_entries(result: &serde_json::Value) -> Vec<AuthEntry> {
                 entries.push(AuthEntry {
                     address: "contract".to_string(),
                     function: "update_current_contract_wasm".to_string(),
-                    sub_invocations: vec![format!("auth_xdr: {}...", &auth_str[..auth_str.len().min(20)])],
+                    sub_invocations: vec![format!(
+                        "auth_xdr: {}...",
+                        &auth_str[..auth_str.len().min(20)]
+                    )],
                 });
             }
         }

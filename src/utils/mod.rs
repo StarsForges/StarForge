@@ -1,3 +1,4 @@
+pub mod ai_telemetry;
 pub mod bindings;
 pub mod config;
 pub mod confirmation;
@@ -16,6 +17,7 @@ pub mod print;
 pub mod profiler;
 pub mod repl;
 pub mod sandbox;
+pub mod security_training;
 pub mod soroban;
 pub mod stellar_toml;
 pub mod stream;
