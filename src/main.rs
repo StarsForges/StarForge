@@ -119,6 +119,11 @@ enum Commands {
 
 fn main() {
     let cli = Cli::parse();
+    let machine_readable = matches!(
+        &cli.command,
+        Commands::Upgrade(commands::upgrade::UpgradeCommands::Analyze(args))
+            if args.format == "json"
+    );
 
     // Initialise structured logging before anything else runs.
     let log_cfg =
@@ -127,12 +132,12 @@ fn main() {
         eprintln!("Warning: failed to initialise logger: {}", e);
     }
 
-    if !cli.quiet {
+    if !cli.quiet && !machine_readable {
         print_banner();
     }
 
     // On first run after a schema version change, re-display the telemetry notice.
-    if !cli.quiet {
+    if !cli.quiet && !machine_readable {
         if let Ok(true) = utils::telemetry::schema_version_changed() {
             eprintln!(
                 "\n  {} Telemetry schema updated to v{}. starforge stores only: \

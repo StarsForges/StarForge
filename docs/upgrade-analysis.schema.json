@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/StarsForges/StarForge/blob/master/docs/upgrade-analysis.schema.json",
+  "title": "StarForge Soroban Upgrade Analysis Report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "current", "candidate", "summary", "findings"],
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "current": {
+      "$ref": "#/$defs/artifact"
+    },
+    "candidate": {
+      "$ref": "#/$defs/artifact"
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["breaking", "warnings", "info", "safe_to_upgrade"],
+      "properties": {
+        "breaking": { "type": "integer", "minimum": 0 },
+        "warnings": { "type": "integer", "minimum": 0 },
+        "info": { "type": "integer", "minimum": 0 },
+        "safe_to_upgrade": { "type": "boolean" }
+      }
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "category",
+          "risk",
+          "confidence",
+          "code",
+          "subject",
+          "message",
+          "current",
+          "candidate"
+        ],
+        "properties": {
+          "category": { "enum": ["interface", "storage"] },
+          "risk": { "enum": ["breaking", "warning", "info"] },
+          "confidence": { "enum": ["confirmed", "heuristic"] },
+          "code": { "type": "string", "minLength": 1 },
+          "subject": { "type": "string", "minLength": 1 },
+          "message": { "type": "string", "minLength": 1 },
+          "current": { "type": ["string", "null"] },
+          "candidate": { "type": ["string", "null"] }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      }
+    }
+  }
+}

@@ -275,6 +275,52 @@ starforge contract generate-bindings ./my_contract.wasm --lang rust
 starforge contract generate-bindings ./my_contract.wasm --lang ts
 ```
 
+### Upgrade safety analysis
+
+Compare the currently deployed build with a candidate before creating an
+upgrade proposal:
+
+```bash
+starforge upgrade analyze \
+  --current artifacts/current.wasm \
+  --candidate target/wasm32-unknown-unknown/release/contract.wasm
+
+# Machine-readable report for CI and an audit artifact
+starforge upgrade analyze \
+  --current artifacts/current.wasm \
+  --candidate target/wasm32-unknown-unknown/release/contract.wasm \
+  --format json \
+  --output upgrade-analysis.json
+```
+
+The command exits non-zero when it finds a breaking change. Interface findings
+come from Soroban's embedded contract specification and have `confirmed`
+confidence. Storage findings are `heuristic`: standard Soroban metadata does
+not record storage durability or stored value types, so StarForge infers likely
+keys from contract types conventionally named `DataKey` or `StorageKey` and
+always asks you to verify the storage layout manually.
+
+The versioned JSON format is documented by
+[`docs/upgrade-analysis.schema.json`](docs/upgrade-analysis.schema.json).
+
+Recommended GitHub Actions gate for an upgrade pull request:
+
+```yaml
+- name: Analyze Soroban upgrade safety
+  run: |
+    starforge upgrade analyze \
+      --current artifacts/production.wasm \
+      --candidate target/wasm32-unknown-unknown/release/contract.wasm \
+      --format json \
+      --output upgrade-analysis.json
+- name: Upload upgrade analysis
+  if: always()
+  uses: actions/upload-artifact@v4
+  with:
+    name: upgrade-analysis
+    path: upgrade-analysis.json
+```
+
 ### Environment info
 
 ```bash
