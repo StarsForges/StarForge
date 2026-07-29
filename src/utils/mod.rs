@@ -27,3 +27,4 @@ pub mod templates;
 pub mod test_runner;
 pub mod tutorial_engine;
 pub mod tx_batch;
+pub mod upgrade_analyzer;

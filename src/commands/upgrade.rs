@@ -1,5 +1,5 @@
-use crate::utils::{config, confirmation, horizon, print as p, soroban};
-use anyhow::Result;
+use crate::utils::{config, confirmation, horizon, print as p, soroban, upgrade_analyzer};
+use anyhow::{Context, Result};
 use chrono::Utc;
 use clap::{Args, Subcommand};
 use colored::*;
@@ -12,6 +12,8 @@ use std::path::PathBuf;
 
 #[derive(Subcommand)]
 pub enum UpgradeCommands {
+    /// Compare two contract WASMs for upgrade-breaking changes
+    Analyze(AnalyzeArgs),
     /// Prepare and validate a contract upgrade
     Prepare(PrepareArgs),
     /// Create a governance proposal for a contract upgrade
@@ -28,6 +30,22 @@ pub enum UpgradeCommands {
     Rollback(RollbackArgs),
     /// Show upgrade history for a contract
     History(HistoryArgs),
+}
+
+#[derive(Args)]
+pub struct AnalyzeArgs {
+    /// Path to the currently deployed contract WASM
+    #[arg(long)]
+    pub current: PathBuf,
+    /// Path to the candidate contract WASM
+    #[arg(long)]
+    pub candidate: PathBuf,
+    /// Report format
+    #[arg(long, default_value = "human", value_parser = ["human", "json"])]
+    pub format: String,
+    /// Save the report to a file
+    #[arg(long)]
+    pub output: Option<PathBuf>,
 }
 
 #[derive(Args)]
@@ -271,6 +289,7 @@ fn short_id(id: &str) -> String {
 
 pub fn handle(cmd: UpgradeCommands) -> Result<()> {
     match cmd {
+        UpgradeCommands::Analyze(args) => handle_analyze(args),
         UpgradeCommands::Prepare(args) => handle_prepare(args),
         UpgradeCommands::Propose(args) => handle_propose(args),
         UpgradeCommands::List(args) => handle_list(args),
@@ -280,6 +299,86 @@ pub fn handle(cmd: UpgradeCommands) -> Result<()> {
         UpgradeCommands::Rollback(args) => handle_rollback(args),
         UpgradeCommands::History(args) => handle_history(args),
     }
+}
+
+fn handle_analyze(args: AnalyzeArgs) -> Result<()> {
+    let report = upgrade_analyzer::analyze_paths(&args.current, &args.candidate)?;
+    let rendered = if args.format == "json" {
+        serde_json::to_string_pretty(&report)?
+    } else {
+        render_analysis_table(&report)
+    };
+
+    println!("{rendered}");
+    if let Some(path) = args.output {
+        fs::write(&path, format!("{rendered}\n"))
+            .with_context(|| format!("Failed to write analysis report {}", path.display()))?;
+        if args.format != "json" {
+            p::info(&format!("Report saved to {}", path.display()));
+        }
+    }
+
+    if report.summary.breaking > 0 {
+        anyhow::bail!(
+            "upgrade analysis found {} breaking finding(s)",
+            report.summary.breaking
+        );
+    }
+    Ok(())
+}
+
+fn render_analysis_table(report: &upgrade_analyzer::UpgradeReport) -> String {
+    use upgrade_analyzer::{Confidence, FindingCategory, Risk};
+
+    let mut output = String::new();
+    output.push_str("Soroban Contract Upgrade Safety Report\n");
+    output.push_str(&format!("Current:   {}\n", report.current.path));
+    output.push_str(&format!("Candidate: {}\n\n", report.candidate.path));
+    output.push_str(&format!(
+        "{:<10}  {:<10}  {:<11}  {:<28}  {}\n",
+        "RISK", "AREA", "CONFIDENCE", "SUBJECT", "CHANGE"
+    ));
+    output.push_str(&format!("{}\n", "─".repeat(100)));
+
+    for finding in &report.findings {
+        let risk = match finding.risk {
+            Risk::Breaking => "breaking",
+            Risk::Warning => "warning",
+            Risk::Info => "info",
+        };
+        let area = match finding.category {
+            FindingCategory::Interface => "interface",
+            FindingCategory::Storage => "storage",
+        };
+        let confidence = match finding.confidence {
+            Confidence::Confirmed => "confirmed",
+            Confidence::Heuristic => "heuristic",
+        };
+        output.push_str(&format!(
+            "{:<10}  {:<10}  {:<11}  {:<28}  {}\n",
+            risk, area, confidence, finding.subject, finding.message
+        ));
+        if finding.current.is_some() || finding.candidate.is_some() {
+            output.push_str(&format!(
+                "  current: {} | candidate: {}\n",
+                finding.current.as_deref().unwrap_or("—"),
+                finding.candidate.as_deref().unwrap_or("—")
+            ));
+        }
+    }
+
+    output.push_str(&format!(
+        "\nSummary: {} breaking, {} warning, {} info — {}\n",
+        report.summary.breaking,
+        report.summary.warnings,
+        report.summary.info,
+        if report.summary.safe_to_upgrade {
+            "no breaking changes found"
+        } else {
+            "upgrade blocked"
+        }
+    ));
+    output
 }
 
 fn handle_prepare(args: PrepareArgs) -> Result<()> {

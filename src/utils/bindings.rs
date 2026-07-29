@@ -44,7 +44,7 @@ pub fn generate_bindings(wasm_path: &Path, language: BindingLanguage) -> Result<
     }
 }
 
-fn read_spec_entries(wasm: &[u8]) -> Result<Vec<ScSpecEntry>> {
+pub(crate) fn read_spec_entries(wasm: &[u8]) -> Result<Vec<ScSpecEntry>> {
     let spec = contract_spec_section(wasm)?;
     let cursor = Cursor::new(spec);
     let entries = ScSpecEntry::read_xdr_iter(&mut Limited::new(
@@ -131,7 +131,7 @@ fn contract_function(function: &ScSpecFunctionV0) -> ContractFunction {
     }
 }
 
-fn spec_type_name(type_def: &ScSpecTypeDef) -> String {
+pub(crate) fn spec_type_name(type_def: &ScSpecTypeDef) -> String {
     match type_def {
         ScSpecTypeDef::Val => "Val".to_string(),
         ScSpecTypeDef::Bool => "bool".to_string(),
