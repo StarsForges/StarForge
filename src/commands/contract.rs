@@ -42,6 +42,9 @@ pub struct InvokeArgs {
     /// Fee multiplier for transaction submission and fee bumping
     #[arg(long, default_value = "1.0")]
     pub fee_multiplier: f64,
+    /// Wallet name that sponsors fees via a fee-bump envelope when submission needs it
+    #[arg(long)]
+    pub fee_payer: Option<String>,
 }
 
 #[derive(Args)]
@@ -220,6 +223,7 @@ fn handle_invoke(args: InvokeArgs) -> Result<()> {
     }
 
     // Load and optionally decrypt wallet for submission
+    let mut fee_payer_wallet: Option<crate::utils::config::WalletEntry> = None;
     let submit_wallet: Option<crate::utils::config::WalletEntry> = if args.submit {
         let cfg = config::load()?;
         let mut w = if let Some(ref wallet_name) = args.wallet {
@@ -245,6 +249,21 @@ fn handle_invoke(args: InvokeArgs) -> Result<()> {
             );
         };
         p::kv("Wallet", &w.name);
+        if let Some(ref fee_payer_name) = args.fee_payer {
+            let sponsor = cfg
+                .wallets
+                .iter()
+                .find(|w| &w.name == fee_payer_name)
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "Fee payer wallet '{}' not found. Run `starforge wallet list`",
+                        fee_payer_name
+                    )
+                })?
+                .clone();
+            p::kv("Fee Payer", &sponsor.name);
+            fee_payer_wallet = Some(sponsor);
+        }
         if let Some(sk) = &w.secret_key.clone() {
             if sk.contains(':') {
                 let pwd = crypto::prompt_password(
@@ -260,6 +279,36 @@ fn handle_invoke(args: InvokeArgs) -> Result<()> {
     };
 
     p::separator();
+
+    let archival_report = match soroban::inspect_contract_archival(&args.contract_id, &args.network)
+    {
+        Ok(report) => {
+            print_archival_preflight(&report);
+            Some(report)
+        }
+        Err(error) => {
+            p::warn(&format!("Archival preflight unavailable: {}", error));
+            None
+        }
+    };
+
+    if let (Some(report), Some(wallet)) = (archival_report.as_ref(), submit_wallet.as_ref()) {
+        if report.needs_restore() {
+            let restore_keys = report.restore_key_xdrs();
+            match soroban::simulate_restore_footprint(&restore_keys, &args.network, wallet) {
+                Ok(simulation) => {
+                    p::warn("Archived ledger entries must be restored before submission.");
+                    p::kv("Restore Fee", &format!("{} stroops", simulation.fee));
+                }
+                Err(error) => {
+                    p::warn(&format!(
+                        "Restore footprint simulation unavailable: {}",
+                        error
+                    ));
+                }
+            }
+        }
+    }
 
     // Step 1 (+ optional Step 2): delegate to shared invoke_contract()
     println!();
@@ -277,6 +326,7 @@ fn handle_invoke(args: InvokeArgs) -> Result<()> {
         &args.network,
         submit_wallet.as_ref(),
         args.fee_multiplier,
+        fee_payer_wallet.as_ref(),
     )?;
 
     let simulation_result = outcome.simulation;
@@ -298,6 +348,10 @@ fn handle_invoke(args: InvokeArgs) -> Result<()> {
         }
     }
 
+    if let Some(ref footprint) = simulation_result.footprint {
+        print_footprint_summary(footprint);
+    }
+
     if let Some(tx_result) = outcome.transaction {
         println!();
         p::step(2, 2, "Submitting transaction…");
@@ -311,6 +365,44 @@ fn handle_invoke(args: InvokeArgs) -> Result<()> {
 
     p::separator();
     Ok(())
+}
+
+fn print_archival_preflight(report: &soroban::ArchivalPreflightReport) {
+    if report.all_entries_live() {
+        p::success("Archival preflight: target ledger entries are live");
+        return;
+    }
+
+    p::warn("Archival preflight detected ledger lifecycle risk:");
+    for entry in &report.entries {
+        p::kv(
+            &format!("  {}", entry.label),
+            &format!("{:?} - {}", entry.status, entry.guidance),
+        );
+    }
+}
+
+fn print_footprint_summary(footprint: &soroban::StorageFootprintSummary) {
+    println!();
+    p::info("Storage footprint:");
+    p::kv("  Read-only keys", &footprint.read_only.len().to_string());
+    p::kv("  Read-write keys", &footprint.read_write.len().to_string());
+    p::kv("  Total keys", &footprint.total_keys().to_string());
+
+    for key in footprint
+        .read_only
+        .iter()
+        .chain(footprint.read_write.iter())
+    {
+        let access = match key.access {
+            soroban::FootprintAccess::ReadOnly => "read-only",
+            soroban::FootprintAccess::ReadWrite => "read-write",
+        };
+        p::kv(
+            &format!("  {}", access),
+            &format!("{} ({} bytes)", key.key, key.size_hint_bytes),
+        );
+    }
 }
 
 fn handle_upload(args: UploadArgs) -> Result<()> {

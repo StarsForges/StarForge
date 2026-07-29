@@ -46,6 +46,9 @@ pub struct DeployArgs {
     /// Fee multiplier for transaction submission and fee bumping
     #[arg(long, default_value = "1.0")]
     pub fee_multiplier: f64,
+    /// Wallet name that sponsors fees via a fee-bump envelope when submission needs it
+    #[arg(long)]
+    pub fee_payer: Option<String>,
 }
 
 fn is_wasm_above_size_limit(wasm_size_kb: f64) -> bool {
@@ -95,16 +98,17 @@ fn run_dry_run(
     wasm_hash: &str,
     wasm_size_kb: f64,
     wallet: &crate::utils::config::WalletEntry,
+    fee_payer: Option<&crate::utils::config::WalletEntry>,
     network: &str,
 ) -> Result<()> {
     p::header("Deployment Dry-Run Plan");
 
     let mut warnings: Vec<String> = Vec::new();
     let mut checks_passed = 0u32;
-    let checks_total = 4u32;
+    let checks_total = 5u32;
 
     // ── Check 1: artifact path ────────────────────────────────────────────
-    p::kv("[ 1/4 ] WASM artifact", &wasm_path.display().to_string());
+    p::kv("[ 1/5 ] WASM artifact", &wasm_path.display().to_string());
     p::kv("        Size", &format!("{:.1} KB", wasm_size_kb));
     p::kv("        SHA-256", wasm_hash);
     if is_wasm_above_size_limit(wasm_size_kb) {
@@ -125,14 +129,18 @@ fn run_dry_run(
     println!();
 
     // ── Check 2: wallet existence ─────────────────────────────────────────
-    p::kv("[ 2/4 ] Wallet", &wallet.name);
+    p::kv("[ 2/5 ] Wallet", &wallet.name);
     p::kv("        Public key", &wallet.public_key);
+    if let Some(fee_payer) = fee_payer {
+        p::kv("        Fee payer", &fee_payer.name);
+        p::kv("        Fee payer key", &fee_payer.public_key);
+    }
     checks_passed += 1;
     p::success("        Wallet found in local config");
     println!();
 
     // ── Check 3: network connectivity / account balance ───────────────────
-    p::kv("[ 3/4 ] Network", network);
+    p::kv("[ 3/5 ] Network", network);
     match horizon::fetch_account(&wallet.public_key, network) {
         Ok(account) => {
             let xlm = account
@@ -163,7 +171,7 @@ fn run_dry_run(
     println!();
 
     // ── Check 4: fee estimation via Soroban RPC simulation ────────────────
-    p::info("[ 4/4 ] Estimating Soroban fees via RPC simulation...");
+    p::info("[ 4/5 ] Estimating Soroban fees via RPC simulation...");
     match soroban::simulate_deploy_transaction(wasm_hash, network, wallet) {
         Ok(simulation) => {
             p::kv(
@@ -178,6 +186,16 @@ fn run_dry_run(
                 checks_passed += 1;
                 p::success("        Fee simulation succeeded");
             }
+            if let Some(ref footprint) = simulation.footprint {
+                p::kv(
+                    "        Footprint",
+                    &format!(
+                        "{} read-only, {} read-write key(s)",
+                        footprint.read_only.len(),
+                        footprint.read_write.len()
+                    ),
+                );
+            }
         }
         Err(e) => {
             warnings.push(format!(
@@ -186,6 +204,30 @@ fn run_dry_run(
             ));
             p::warn(&format!("        Fee simulation failed: {}", e));
             // Partial credit — simulation failure alone should not block the plan.
+            checks_passed += 1;
+        }
+    }
+    println!();
+
+    p::info("[ 5/5 ] Checking uploaded WASM archival status...");
+    match soroban::inspect_wasm_archival(wasm_hash, network) {
+        Ok(report) => {
+            if report.all_entries_live() {
+                p::success("        Uploaded WASM TTL is healthy");
+            } else {
+                for entry in &report.entries {
+                    warnings.push(format!("{}: {}", entry.label, entry.guidance));
+                }
+                p::warn("        Uploaded WASM may need TTL restoration or extension");
+            }
+            checks_passed += 1;
+        }
+        Err(e) => {
+            warnings.push(format!(
+                "WASM archival preflight unavailable: {}. If this hash is already uploaded, verify TTL before deployment.",
+                e
+            ));
+            p::warn(&format!("        WASM archival preflight failed: {}", e));
             checks_passed += 1;
         }
     }
@@ -200,6 +242,9 @@ fn run_dry_run(
     );
     p::kv("Network", network);
     p::kv("Wallet", &wallet.name);
+    if let Some(fee_payer) = fee_payer {
+        p::kv("Fee payer", &fee_payer.name);
+    }
     p::kv("WASM", &wasm_path.display().to_string());
     p::kv("WASM hash (SHA-256)", wasm_hash);
 
@@ -314,9 +359,28 @@ pub fn handle(args: DeployArgs) -> Result<()> {
             "No wallets found. Create one first:\n  starforge wallet create deployer --fund"
         );
     };
+    let fee_payer = if let Some(ref wallet_name) = args.fee_payer {
+        Some(
+            cfg.wallets
+                .iter()
+                .find(|w| &w.name == wallet_name)
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "Fee payer wallet '{}' not found. Run `starforge wallet list`",
+                        wallet_name
+                    )
+                })?,
+        )
+    } else {
+        None
+    };
 
     p::kv("Wallet", &wallet.name);
     p::kv_accent("Public Key", &wallet.public_key);
+    if let Some(fee_payer) = fee_payer {
+        p::kv("Fee Payer", &fee_payer.name);
+        p::kv("Fee Payer Key", &fee_payer.public_key);
+    }
     p::separator();
 
     let wasm_hash = compute_local_wasm_hash(&wasm_bytes);
@@ -329,6 +393,7 @@ pub fn handle(args: DeployArgs) -> Result<()> {
             &wasm_hash,
             wasm_size_kb,
             wallet,
+            fee_payer,
             &args.network,
         );
     }
@@ -338,6 +403,9 @@ pub fn handle(args: DeployArgs) -> Result<()> {
         match soroban::simulate_deploy_transaction(&wasm_hash, &args.network, wallet) {
             Ok(simulation) => {
                 p::kv("Estimated Fee", &format!("{} stroops", simulation.fee));
+                if let Some(ref footprint) = simulation.footprint {
+                    print_footprint_summary(footprint);
+                }
                 if !simulation.errors.is_empty() {
                     for error in &simulation.errors {
                         p::warn(&format!("Simulation error: {}", error));
@@ -369,6 +437,12 @@ pub fn handle(args: DeployArgs) -> Result<()> {
     .add("WASM size", format!("{:.1} KB", wasm_size_kb))
     .add("WASM hash", &wasm_hash)
     .add("Wallet", &wallet.name)
+    .add(
+        "Fee Payer",
+        fee_payer
+            .map(|wallet| wallet.name.as_str())
+            .unwrap_or("not configured"),
+    )
     .add("Public Key", &wallet.public_key)
     .add("Optimized", if args.optimize { "Yes" } else { "No" })
     .add("Execute", if args.execute { "Yes" } else { "No (dry-run)" });
@@ -419,6 +493,12 @@ pub fn handle(args: DeployArgs) -> Result<()> {
     println!();
     p::kv_accent("XLM Balance", &format!("{} XLM", xlm));
     p::kv("WASM Hash (local SHA-256)", &wasm_hash);
+    if let Some(fee_payer) = fee_payer {
+        p::info(&format!(
+            "Fee payer '{}' is configured for StarForge fee-bump flows; the generated Stellar CLI command still uses the deployment source account.",
+            fee_payer.name
+        ));
+    }
 
     println!();
     p::separator();
@@ -455,4 +535,15 @@ pub fn handle(args: DeployArgs) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn print_footprint_summary(footprint: &soroban::StorageFootprintSummary) {
+    p::kv(
+        "Storage Footprint",
+        &format!(
+            "{} read-only, {} read-write key(s)",
+            footprint.read_only.len(),
+            footprint.read_write.len()
+        ),
+    );
 }

@@ -39,6 +39,10 @@ pub struct InvokeArgs {
     /// Fee multiplier for transaction submission and fee bumping
     #[arg(long, default_value = "1.0")]
     fee_multiplier: f64,
+
+    /// Wallet name that sponsors fees via a fee-bump envelope when submission needs it
+    #[arg(long)]
+    fee_payer: Option<String>,
 }
 
 #[allow(dead_code)]
@@ -55,6 +59,16 @@ pub fn handle(args: InvokeArgs) -> Result<()> {
         .iter()
         .find(|w| w.name == args.wallet)
         .ok_or_else(|| anyhow::anyhow!("Wallet '{}' not found", args.wallet))?;
+    let fee_payer = args
+        .fee_payer
+        .as_ref()
+        .map(|name| {
+            cfg.wallets
+                .iter()
+                .find(|w| &w.name == name)
+                .ok_or_else(|| anyhow::anyhow!("Fee payer wallet '{}' not found", name))
+        })
+        .transpose()?;
 
     // Parse arguments
     let arg_list = parse_args(&args.args)?;
@@ -104,6 +118,7 @@ pub fn handle(args: InvokeArgs) -> Result<()> {
         network,
         submit_wallet.map(|w| w as &crate::utils::config::WalletEntry),
         args.fee_multiplier,
+        fee_payer,
     )?;
 
     println!();
