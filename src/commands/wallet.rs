@@ -1941,14 +1941,15 @@ fn multisig_create(
     p::kv("Signers", &account.signers.len().to_string());
     if let Some(path) = xdr_output {
         p::step(1, 2, "Fetching source account sequence...");
-        let source_account = horizon::fetch_account(&account.account_id, &network).map_err(|e| {
-            anyhow::anyhow!(
-                "Multi-sig account not found on {}: {}\nFund it with: starforge wallet fund {}",
-                network,
-                e,
-                account.name
-            )
-        })?;
+        let source_account =
+            horizon::fetch_account(&account.account_id, &network).map_err(|e| {
+                anyhow::anyhow!(
+                    "Multi-sig account not found on {}: {}\nFund it with: starforge wallet fund {}",
+                    network,
+                    e,
+                    account.name
+                )
+            })?;
         p::step(2, 2, "Building unsigned SetOptions transaction XDR...");
         let setup_xdr =
             multisig::build_account_setup_transaction_xdr(&account, &source_account.sequence)?;
@@ -1967,8 +1968,7 @@ fn multisig_create(
         "  {}",
         format!(
             "starforge wallet multisig sign {} --transaction tx.xdr --network {}",
-            account.name,
-            network
+            account.name, network
         )
         .cyan()
     );
@@ -1977,8 +1977,7 @@ fn multisig_create(
         "  {}",
         format!(
             "starforge wallet multisig submit {} --transaction tx.xdr --network {}",
-            account.name,
-            network
+            account.name, network
         )
         .cyan()
     );
@@ -2150,7 +2149,11 @@ fn multisig_submit(name: String, transaction: PathBuf, network: Option<String>) 
         );
     }
 
-    p::step(1, 1, &format!("Submitting signed envelope to Horizon ({})...", network));
+    p::step(
+        1,
+        1,
+        &format!("Submitting signed envelope to Horizon ({})...", network),
+    );
     let result = horizon::submit_multisig_transaction(&signed_xdr, &network)?;
 
     println!();

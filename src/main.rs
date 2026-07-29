@@ -122,6 +122,26 @@ enum Commands {
 }
 
 fn main() {
+    let args: Vec<String> = std::env::args().collect();
+    if args.len() > 1 && args[1] == "__run_plugin_library" {
+        if let Err(e) = plugins::loader::run_plugin_library_internal(&args[2..]) {
+            eprintln!("Error: {}", e);
+            std::process::exit(1);
+        }
+        std::process::exit(0);
+    }
+    if args.len() > 1 && args[1] == "__dump_plugin_metadata" {
+        if args.len() < 3 {
+            eprintln!("Error: Missing plugin library path");
+            std::process::exit(1);
+        }
+        if let Err(e) = plugins::loader::dump_plugin_metadata_internal(&args[2]) {
+            eprintln!("Error: {}", e);
+            std::process::exit(1);
+        }
+        std::process::exit(0);
+    }
+
     let cli = Cli::parse();
 
     // Initialise structured logging before anything else runs.
@@ -226,7 +246,6 @@ fn main() {
 
 fn handle_external_plugin(args: Vec<String>) -> anyhow::Result<()> {
     use anyhow::Context;
-    use plugins::registry::TrustLevel;
 
     if args.is_empty() {
         anyhow::bail!("No plugin command provided");
@@ -237,15 +256,13 @@ fn handle_external_plugin(args: Vec<String>) -> anyhow::Result<()> {
 
     let reg = plugins::registry::load_registry().unwrap_or_default();
     if reg.plugins.is_empty() {
-        anyhow::bail!(
-            "Unknown command '{}'. No plugins installed.\n\nTry: starforge plugin install <name> --path <lib>",
-            plugin_name
-        );
+        anyhow::bail!("No plugins registered. Use: starforge plugin install <name> --path <lib>");
     }
 
     // Check if the command matches any registered plugin command before loading .so files.
     let all_commands = plugins::registry::load_all_registered_commands();
     let known = all_commands.iter().any(|c| c.name == *plugin_name);
+
     if !known {
         let available: Vec<String> = all_commands
             .iter()
@@ -260,26 +277,66 @@ fn handle_external_plugin(args: Vec<String>) -> anyhow::Result<()> {
         anyhow::bail!("Unknown command '{}'.\n\n{}", plugin_name, hint);
     }
 
-    // Warn about unknown-trust plugins before loading.
-    for pl in reg.plugins.iter().filter(|p| {
-        plugins::registry::classify_source(&p.source) == TrustLevel::Unknown && !p.source.is_empty()
-    }) {
-        eprintln!(
-            "  ⚠  Warning: plugin '{}' is from an untrusted source: {}",
-            pl.name, pl.source
+    let target_plugin = reg
+        .plugins
+        .iter()
+        .find(|p| p.commands.iter().any(|c| c.name == *plugin_name))
+        .ok_or_else(|| anyhow::anyhow!("Plugin command '{}' not found in registry", plugin_name))?;
+
+    // Elevate Unknown plugins to blocked status
+    if target_plugin.trust == plugins::registry::TrustLevel::Unknown {
+        anyhow::bail!(
+            "Execution blocked: plugin '{}' is from an untrusted source ({})",
+            target_plugin.name,
+            target_plugin.source
         );
     }
 
-    let mut pm = plugins::PluginManager::new();
-    for pl in &reg.plugins {
-        unsafe {
-            pm.load_plugin(&pl.path)
-                .with_context(|| format!("Failed to load plugin '{}' from {}", pl.name, pl.path))?;
+    let config = utils::config::load().unwrap_or_default();
+    if config.plugin_trust.require_approval {
+        let actual_hash =
+            plugins::loader::calculate_sha256(std::path::Path::new(&target_plugin.path))
+                .context("Failed to calculate plugin content hash")?;
+        if target_plugin.content_hash.as_ref() != Some(&actual_hash) {
+            anyhow::bail!(
+                "Execution blocked: plugin '{}' content hash mismatch or not approved.\n\
+                 Expected (approved): {:?}\n\
+                 Actual             : {}",
+                target_plugin.name,
+                target_plugin.content_hash,
+                actual_hash
+            );
         }
     }
 
-    pm.execute(plugin_name, plugin_args)
-        .map_err(|e| anyhow::anyhow!(e))
+    let caps_str = if target_plugin.capabilities.is_empty() {
+        "none".to_string()
+    } else {
+        target_plugin
+            .capabilities
+            .iter()
+            .map(|c| c.name())
+            .collect::<Vec<_>>()
+            .join(",")
+    };
+
+    let status = std::process::Command::new(std::env::current_exe()?)
+        .arg("__run_plugin_library")
+        .arg(&target_plugin.path)
+        .arg(&target_plugin.name)
+        .arg(&caps_str)
+        .arg("--")
+        .args(plugin_args)
+        .stdin(std::process::Stdio::inherit())
+        .stdout(std::process::Stdio::inherit())
+        .stderr(std::process::Stdio::inherit())
+        .status()
+        .context("Failed to run plugin subprocess")?;
+
+    if !status.success() {
+        std::process::exit(status.code().unwrap_or(1));
+    }
+    Ok(())
 }
 
 fn print_banner() {

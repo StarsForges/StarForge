@@ -37,7 +37,7 @@ pub struct UpgradeSimulationResult {
 }
 
 /// A single authorization requirement surfaced by an upgrade simulation.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct AuthEntry {
     pub address: String,
     pub function: String,

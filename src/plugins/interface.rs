@@ -29,10 +29,40 @@ pub trait Plugin: Any + Send + Sync {
     fn execute(&self, args: &[String]) -> Result<(), String>;
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub enum Capability {
+    NetworkAccess,
+    FileSystem,
+    Config,
+}
+
+impl Capability {
+    pub fn name(&self) -> &'static str {
+        match self {
+            Capability::NetworkAccess => "NetworkAccess",
+            Capability::FileSystem => "FileSystem",
+            Capability::Config => "Config",
+        }
+    }
+
+    pub fn description(&self) -> &'static str {
+        match self {
+            Capability::NetworkAccess => "Allows the plugin to make outbound network requests",
+            Capability::FileSystem => {
+                "Allows the plugin to read/write files in the local filesystem"
+            }
+            Capability::Config => {
+                "Allows the plugin to access StarForge wallet credentials and config"
+            }
+        }
+    }
+}
+
 pub struct PluginDeclaration {
     pub rustc_version: &'static str,
     pub core_version: &'static str,
     pub register: unsafe fn(&mut dyn PluginRegistrar),
+    pub capabilities: &'static [Capability],
 }
 
 pub trait PluginRegistrar {
@@ -41,7 +71,7 @@ pub trait PluginRegistrar {
 
 #[macro_export]
 macro_rules! export_plugin {
-    ($register:expr) => {
+    ($register:expr, $capabilities:expr) => {
         #[doc(hidden)]
         #[no_mangle]
         pub static PLUGIN_DECLARATION: $crate::plugins::PluginDeclaration =
@@ -49,7 +79,11 @@ macro_rules! export_plugin {
                 rustc_version: $crate::plugins::interface::RUSTC_VERSION,
                 core_version: $crate::plugins::interface::CORE_VERSION,
                 register: $register,
+                capabilities: $capabilities,
             };
+    };
+    ($register:expr) => {
+        $crate::export_plugin!($register, &[]);
     };
 }
 

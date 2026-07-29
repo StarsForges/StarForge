@@ -230,14 +230,21 @@ pub struct PluginTrustConfig {
     /// (`plugins.example.com`) or URL prefixes (`https://plugins.example.com/releases/`).
     #[serde(default = "default_trusted_plugin_sources")]
     pub trusted_sources: Vec<String>,
+    #[serde(default = "default_require_approval")]
+    pub require_approval: bool,
 }
 
 impl Default for PluginTrustConfig {
     fn default() -> Self {
         Self {
             trusted_sources: default_trusted_plugin_sources(),
+            require_approval: default_require_approval(),
         }
     }
+}
+
+pub fn default_require_approval() -> bool {
+    true
 }
 
 pub fn default_trusted_plugin_sources() -> Vec<String> {

@@ -187,6 +187,8 @@ pub struct RegisteredCommand {
     pub description: String,
 }
 
+use crate::plugins::Capability;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InstalledPlugin {
     pub name: String,
@@ -210,6 +212,12 @@ pub struct InstalledPlugin {
     /// Commands registered by the plugin at install time.
     #[serde(default)]
     pub commands: Vec<RegisteredCommand>,
+    /// Capabilities requested by the plugin and approved by the user.
+    #[serde(default)]
+    pub capabilities: Vec<Capability>,
+    /// SHA-256 hash of the plugin library file when approved.
+    #[serde(default)]
+    pub content_hash: Option<String>,
 }
 
 fn registry_path() -> Result<PathBuf> {
@@ -282,6 +290,7 @@ pub fn is_managed_plugin_path(path: &Path) -> bool {
 /// `source` is the URL or identifier where the plugin came from; pass an
 /// empty string when the user supplied `--path` directly.
 /// `commands` is the list of commands the plugin advertises (from `Plugin::commands()`).
+#[allow(clippy::too_many_arguments)]
 pub fn install_plugin(
     name: &str,
     library_path: &Path,
@@ -289,6 +298,8 @@ pub fn install_plugin(
     starforge_version: &str,
     plugin_version: &str,
     commands: Vec<RegisteredCommand>,
+    capabilities: Vec<Capability>,
+    content_hash: Option<String>,
 ) -> Result<()> {
     if !library_path.exists() {
         anyhow::bail!("Plugin library not found: {}", library_path.display());
@@ -308,6 +319,8 @@ pub fn install_plugin(
         plugin_version: plugin_version.to_string(),
         installed_at: Some(now),
         commands,
+        capabilities,
+        content_hash,
     });
     reg.plugins.sort_by(|a, b| a.name.cmp(&b.name));
     save_registry(&reg)?;
@@ -527,7 +540,7 @@ mod tests {
     fn install_missing_library_fails() {
         let tmp = TempDir::new().unwrap();
         let missing = tmp.path().join("nonexistent.so");
-        let result = install_plugin("test", &missing, "", "0.1.0", "1.0.0", vec![]);
+        let result = install_plugin("test", &missing, "", "0.1.0", "1.0.0", vec![], vec![], None);
         assert!(result.is_err(), "installing a missing library must fail");
         assert!(result.unwrap_err().to_string().contains("not found"));
     }
