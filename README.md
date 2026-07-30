@@ -126,6 +126,36 @@ starforge wallet rotate alice --fund
 
 Wallet rotation keeps the same local wallet name in `~/.starforge/config.toml`, but it creates a brand-new on-chain Stellar account keypair. Any scripts, signer sets, or deployment flows that referenced the previous public key still need to be updated separately.
 
+### Batch payout commands (airdrops & contributor payments)
+
+Pay hundreds or thousands of recipients from a CSV file with checkpointing, resume support, and fee-bump retry.
+
+**CSV format** (`destination,amount,asset[,memo]`):
+
+```csv
+destination,amount,asset,memo
+GABC...XYZ,10,XLM,contributor-q1
+GDEF...UVW,25,USDC:GISSUER...,payout
+```
+
+**Sample run:**
+
+```bash
+# Validate recipients and show total cost without submitting anything
+starforge batch pay --file recipients.csv --wallet payer --network testnet --dry-run
+
+# Execute the payout (writes recipients.csv.batch-state.json as it progresses)
+starforge batch pay --file recipients.csv --wallet payer --network testnet
+
+# Check progress without submitting
+starforge batch status --file recipients.csv
+
+# Resume after interruption (also auto-detected when re-running batch pay)
+starforge batch resume --file recipients.csv --wallet payer --network testnet
+```
+
+If the process is killed mid-run, re-run the same `batch pay` command or use `batch resume`. Already-confirmed rows are never resubmitted; the checkpoint file records each row as `pending`, `submitted`, `confirmed`, or `failed`.
+
 ### Network commands
 
 ```bash
