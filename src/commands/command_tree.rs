@@ -133,6 +133,15 @@ const COMMANDS: &[CmdEntry] = &[
         ],
     },
     CmdEntry {
+        name: "batch",
+        about: "Resumable CSV batch payouts (airdrops, contributor payments)",
+        subs: &[
+            ("pay", "Pay recipients from a CSV with checkpointing"),
+            ("status", "Show payout progress from the checkpoint file"),
+            ("resume", "Explicitly resume an interrupted batch payout"),
+        ],
+    },
+    CmdEntry {
         name: "tx",
         about: "Fetch transaction details for an account",
         subs: &[],

@@ -65,6 +65,9 @@ enum Commands {
     #[command(subcommand)]
     Telemetry(commands::telemetry::TelemetryCommands),
 
+    /// Resumable CSV batch payouts (airdrops, contributor payments)
+    Batch(commands::batch::BatchArgs),
+
     Tx(commands::tx::TxArgs), // fetch transaction for the account
 
     /// View or switch the active network (testnet/mainnet)
@@ -183,6 +186,7 @@ fn main() {
         Commands::Info => "info",
         Commands::Config(_) => "config",
         Commands::Telemetry(_) => "telemetry",
+        Commands::Batch(_) => "batch",
         Commands::Tx(_) => "tx",
         Commands::Network(_) => "network",
         Commands::Node(_) => "node",
@@ -213,6 +217,7 @@ fn main() {
         Commands::Info => commands::info::handle(),
         Commands::Config(cmd) => commands::config::handle(cmd),
         Commands::Telemetry(cmd) => commands::telemetry::handle(cmd),
+        Commands::Batch(args) => commands::batch::handle(args),
         Commands::Tx(args) => commands::tx::handle(args),
         Commands::Network(cmd) => commands::network::handle(cmd),
         Commands::Node(cmd) => commands::node::handle(cmd),

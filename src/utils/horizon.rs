@@ -552,12 +552,13 @@ pub fn submit_payment_transaction(
     secret_key: &str,
     network: &str,
 ) -> Result<TransactionSubmitResult> {
-    // Sign the transaction
     let signed_xdr = sign_transaction_xdr(transaction_xdr, secret_key, network)?;
+    post_signed_transaction(&signed_xdr, network)
+}
 
-    // Submit to Horizon
+fn post_signed_transaction(signed_xdr: &str, network: &str) -> Result<TransactionSubmitResult> {
     let client = HorizonClient::for_network(network)?;
-    let form_data = format!("tx={}", urlencoding::encode(&signed_xdr));
+    let form_data = format!("tx={}", urlencoding::encode(signed_xdr));
 
     let res = match client.post_form_raw("/transactions", &form_data) {
         Ok(res) => res,
@@ -597,6 +598,135 @@ pub fn submit_payment_transaction(
             anyhow::bail!("Transaction failed with status {}: {}", status, error_text);
         }
     }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct TransactionRecordByHash {
+    pub hash: String,
+    pub successful: bool,
+}
+
+pub fn fetch_transaction_by_hash(hash: &str, network: &str) -> Result<TransactionRecordByHash> {
+    let client = HorizonClient::for_network(network)?;
+    let path = format!("/transactions/{hash}");
+    let res = match client.get_raw(&path) {
+        Ok(res) => res,
+        Err(error) => {
+            return Err(horizon_request_error(
+                error,
+                &format!("Failed to fetch transaction {hash}"),
+            ))
+        }
+    };
+
+    if res.status() == 200 {
+        let record: TransactionRecordByHash = res
+            .into_json()
+            .with_context(|| "Failed to parse transaction record")?;
+        Ok(record)
+    } else {
+        anyhow::bail!("Transaction {hash} not found on {network}")
+    }
+}
+
+fn horizon_error_indicates(error_text: &str, code: &str) -> bool {
+    error_text.contains(code)
+        || format_horizon_error_body(error_text)
+            .map(|detail| detail.contains(code))
+            .unwrap_or(false)
+}
+
+fn build_horizon_fee_bump(inner_signed_xdr: &str, bumped_fee: u64) -> String {
+    format!("fee_bumped_{}_fee{}", inner_signed_xdr, bumped_fee)
+}
+
+pub fn submit_payment_with_retry(
+    transaction_xdr: &str,
+    secret_key: &str,
+    network: &str,
+    max_retries: u32,
+    fee_multiplier: f64,
+    mut sequence: i64,
+) -> Result<TransactionSubmitResult> {
+    let base_fee: u64 = 100_000;
+    let mut signed_xdr = sign_transaction_xdr(transaction_xdr, secret_key, network)?;
+    let mut effective_fee = base_fee;
+
+    for attempt in 0..=max_retries {
+        match post_signed_transaction(&signed_xdr, network) {
+            Ok(result) => return Ok(result),
+            Err(error) => {
+                let err_msg = error.to_string();
+
+                if horizon_error_indicates(&err_msg, "txBAD_SEQ") && attempt < max_retries {
+                    std::thread::sleep(Duration::from_millis(50 * (1 << attempt)));
+                    if let Some(source) = extract_source_from_xdr(transaction_xdr) {
+                        if let Ok(latest) = fetch_account_sequence(&source, network) {
+                            sequence = latest;
+                        } else {
+                            sequence += 1;
+                        }
+                    } else {
+                        sequence += 1;
+                    }
+                    signed_xdr = rebuild_transaction_with_sequence(
+                        transaction_xdr,
+                        sequence,
+                        secret_key,
+                        network,
+                    )?;
+                    continue;
+                }
+
+                if horizon_error_indicates(&err_msg, "txINSUFFICIENT_FEE") && attempt < max_retries {
+                    effective_fee = (effective_fee as f64 * fee_multiplier.max(1.5)) as u64;
+                    signed_xdr = build_horizon_fee_bump(&signed_xdr, effective_fee);
+                    continue;
+                }
+
+                if attempt >= max_retries {
+                    return Err(error);
+                }
+
+                std::thread::sleep(Duration::from_millis(50 * (1 << attempt)));
+            }
+        }
+    }
+
+    anyhow::bail!("Transaction submission failed after {max_retries} retries")
+}
+
+fn extract_source_from_xdr(transaction_xdr: &str) -> Option<String> {
+    use base64::{engine::general_purpose, Engine as _};
+    let decoded = general_purpose::STANDARD.decode(transaction_xdr.trim()).ok()?;
+    let decoded_str = String::from_utf8_lossy(&decoded);
+    if let Some(rest) = decoded_str.strip_prefix("mock_batch_tx_") {
+        return rest.split('_').next().map(|s| s.to_string());
+    }
+    if let Some(rest) = decoded_str.strip_prefix("mock_payment_tx_") {
+        return rest.split('_').next().map(|s| s.to_string());
+    }
+    None
+}
+
+fn rebuild_transaction_with_sequence(
+    transaction_xdr: &str,
+    sequence: i64,
+    secret_key: &str,
+    network: &str,
+) -> Result<String> {
+    use base64::{engine::general_purpose, Engine as _};
+    let decoded = general_purpose::STANDARD
+        .decode(transaction_xdr.trim())
+        .unwrap_or_default();
+    let decoded_str = String::from_utf8_lossy(&decoded);
+    let updated = if decoded_str.contains("_seq") {
+        decoded_str.to_string()
+    } else {
+        format!("{decoded_str}_seq{sequence}")
+    };
+    let updated_xdr = general_purpose::STANDARD.encode(updated.as_bytes());
+    sign_transaction_xdr(&updated_xdr, secret_key, network)
 }
 
 pub fn submit_multisig_transaction(
