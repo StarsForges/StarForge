@@ -1,6 +1,7 @@
 use crate::plugins::interface::CORE_VERSION;
 use crate::plugins::manifest;
 use crate::plugins::registry::{self, RegisteredCommand, TrustLevel, UninstallOptions};
+use crate::plugins::wasm_runtime;
 use crate::plugins::{Capability, PluginLoadError, PluginManager};
 use crate::utils::print as p;
 use anyhow::Result;
@@ -133,42 +134,47 @@ fn install(name: String, path: Option<PathBuf>, source: Option<String>, force: b
     }
 
     let plugin_manifest = manifest::require_compatible_manifest(&lib_path, &name)?;
+    let is_wasm = wasm_runtime::is_wasm_plugin(&lib_path);
 
     // Command discovery is best-effort: install records the manifest/path, while
     // audit/load report runtime library failures with richer diagnostics.
-    let discovered_commands: Vec<RegisteredCommand> = match discover_commands_from_library(
-        lib_path
-            .to_str()
-            .ok_or_else(|| anyhow::anyhow!("Plugin path is not valid UTF-8"))?,
-    ) {
-        Ok(commands) => commands,
-        Err(error) => {
-            p::warn(&format!(
-                "Plugin registered without command discovery: {}",
-                error
-            ));
-            Vec::new()
-        }
-    };
+    let discovered_commands: Vec<RegisteredCommand> =
+        match discover_commands_from_artifact(&lib_path, &plugin_manifest) {
+            Ok(commands) => commands,
+            Err(error) => {
+                p::warn(&format!(
+                    "Plugin registered without command discovery: {}",
+                    error
+                ));
+                Vec::new()
+            }
+        };
 
-    let meta = match get_plugin_metadata(&lib_path) {
-        Ok(m) => m,
-        Err(error) => {
-            p::warn(&format!(
-                "Plugin registered without capability discovery: {}",
-                error
-            ));
-            crate::plugins::loader::PluginMetadataDump {
-                name: name.clone(),
-                version: plugin_manifest.version.clone(),
-                description: "".to_string(),
-                capabilities: Vec::new(),
-                commands: discovered_commands.clone(),
+    let meta = if is_wasm {
+        metadata_from_manifest(&plugin_manifest, discovered_commands.clone())
+    } else {
+        match get_plugin_metadata(&lib_path) {
+            Ok(m) => m,
+            Err(error) => {
+                p::warn(&format!(
+                    "Plugin registered without capability discovery: {}",
+                    error
+                ));
+                crate::plugins::loader::PluginMetadataDump {
+                    name: name.clone(),
+                    version: plugin_manifest.version.clone(),
+                    description: "".to_string(),
+                    capabilities: Vec::new(),
+                    commands: discovered_commands.clone(),
+                }
             }
         }
     };
 
     let approved_caps = audit_and_approve_capabilities(&name, &meta.capabilities)?;
+    if is_wasm {
+        wasm_runtime::inspect_wasm_plugin(&lib_path, &approved_caps)?;
+    }
     let content_hash = crate::plugins::loader::calculate_sha256(&lib_path).ok();
 
     registry::install_plugin(
@@ -185,7 +191,8 @@ fn install(name: String, path: Option<PathBuf>, source: Option<String>, force: b
     p::header("Plugin Install");
     p::success("Plugin registered");
     p::kv_accent("Name", &name);
-    p::kv("Library", &lib_path.display().to_string());
+    p::kv("Artifact", &lib_path.display().to_string());
+    p::kv("Runtime", if is_wasm { "wasm" } else { "native" });
     p::kv("Plugin version", &plugin_manifest.version);
     p::kv(
         "StarForge compatibility",
@@ -256,11 +263,26 @@ fn load() -> Result<()> {
 
     let mut pm = PluginManager::new();
     let mut failed: Vec<(String, PluginLoadError)> = Vec::new();
+    let mut wasm_loaded: Vec<&registry::InstalledPlugin> = Vec::new();
 
     for pl in &reg.plugins {
-        match unsafe { pm.load_plugin_diagnosed(&pl.path) } {
-            Ok(()) => {}
-            Err(e) => failed.push((pl.name.clone(), e)),
+        let artifact_path = Path::new(&pl.path);
+        if wasm_runtime::is_wasm_plugin(artifact_path) {
+            match wasm_runtime::inspect_wasm_plugin(artifact_path, &pl.capabilities) {
+                Ok(_) => wasm_loaded.push(pl),
+                Err(error) => failed.push((
+                    pl.name.clone(),
+                    PluginLoadError::WasmRuntime {
+                        path: pl.path.clone(),
+                        detail: error.to_string(),
+                    },
+                )),
+            }
+        } else {
+            match unsafe { pm.load_plugin_diagnosed(&pl.path) } {
+                Ok(()) => {}
+                Err(e) => failed.push((pl.name.clone(), e)),
+            }
         }
     }
 
@@ -278,17 +300,21 @@ fn load() -> Result<()> {
     }
 
     let loaded = pm.list_plugins();
-    if loaded.is_empty() && failed.is_empty() {
+    if loaded.is_empty() && wasm_loaded.is_empty() && failed.is_empty() {
         p::warn("No plugins loaded.");
         return Ok(());
     }
 
-    if !loaded.is_empty() {
+    if !loaded.is_empty() || !wasm_loaded.is_empty() {
         p::kv("StarForge core version", CORE_VERSION);
         p::separator();
         for (name, desc, built_for) in loaded {
             p::kv_accent(name, desc);
             p::kv("Built for StarForge", built_for);
+        }
+        for plugin in wasm_loaded {
+            p::kv_accent(&plugin.name, "WASM plugin validated in sandbox");
+            p::kv("Built for StarForge", &plugin.starforge_version);
         }
         p::separator();
     }
@@ -522,8 +548,13 @@ fn update(name: Option<String>, yes: bool) -> Result<()> {
                             pl.capabilities.clone()
                         };
                         let content_hash = crate::plugins::loader::calculate_sha256(path).ok();
-                        let cmds = discover_commands_from_library(&pl.path)
-                            .unwrap_or_else(|_| pl.commands.clone());
+                        let cmds = manifest::load_manifest_for_library(path)
+                            .ok()
+                            .flatten()
+                            .and_then(|plugin_manifest| {
+                                discover_commands_from_artifact(path, &plugin_manifest).ok()
+                            })
+                            .unwrap_or_else(|| pl.commands.clone());
 
                         registry::install_plugin(
                             &pl.name,
@@ -886,18 +917,37 @@ fn audit_plugin(plugin: &registry::InstalledPlugin, runtime_check: bool) -> Audi
     }
 
     if runtime_check {
-        let mut manager = PluginManager::new();
-        match unsafe { manager.load_plugin(library_path) } {
-            Ok(()) => checks.push(AuditCheck {
-                name: "runtime",
-                severity: AuditSeverity::Pass,
-                message: "Plugin loaded successfully".to_string(),
-            }),
-            Err(err) => checks.push(AuditCheck {
-                name: "runtime",
-                severity: AuditSeverity::Fail,
-                message: err.to_string(),
-            }),
+        if wasm_runtime::is_wasm_plugin(library_path) {
+            match wasm_runtime::inspect_wasm_plugin(library_path, &plugin.capabilities) {
+                Ok(inspection) => checks.push(AuditCheck {
+                    name: "runtime",
+                    severity: AuditSeverity::Pass,
+                    message: format!(
+                        "WASM sandbox validated (ABI {:?}, {} import(s))",
+                        inspection.abi_version,
+                        inspection.imports.len()
+                    ),
+                }),
+                Err(err) => checks.push(AuditCheck {
+                    name: "runtime",
+                    severity: AuditSeverity::Fail,
+                    message: err.to_string(),
+                }),
+            }
+        } else {
+            let mut manager = PluginManager::new();
+            match unsafe { manager.load_plugin(library_path) } {
+                Ok(()) => checks.push(AuditCheck {
+                    name: "runtime",
+                    severity: AuditSeverity::Pass,
+                    message: "Plugin loaded successfully".to_string(),
+                }),
+                Err(err) => checks.push(AuditCheck {
+                    name: "runtime",
+                    severity: AuditSeverity::Fail,
+                    message: err.to_string(),
+                }),
+            }
         }
     }
 
@@ -926,12 +976,28 @@ fn print_audit_report(report: &AuditReport) {
     println!();
 }
 
-fn discover_commands_from_library(path: &str) -> Result<Vec<RegisteredCommand>> {
-    let meta = get_plugin_metadata(Path::new(path))?;
+fn discover_commands_from_artifact(
+    path: &Path,
+    manifest: &manifest::PluginManifest,
+) -> Result<Vec<RegisteredCommand>> {
+    if wasm_runtime::is_wasm_plugin(path) {
+        return Ok(vec![RegisteredCommand {
+            name: manifest.name.clone(),
+            description: manifest.description.clone(),
+        }]);
+    }
+
+    let meta = get_plugin_metadata(path)?;
     Ok(meta.commands)
 }
 
 fn get_plugin_metadata(library_path: &Path) -> Result<crate::plugins::loader::PluginMetadataDump> {
+    if wasm_runtime::is_wasm_plugin(library_path) {
+        let manifest = manifest::load_manifest_for_library(library_path)?
+            .ok_or_else(|| anyhow::anyhow!("Missing {}", manifest::MANIFEST_FILENAME))?;
+        return Ok(metadata_from_manifest(&manifest, Vec::new()));
+    }
+
     let output = std::process::Command::new(std::env::current_exe()?)
         .arg("__dump_plugin_metadata")
         .arg(library_path)
@@ -942,6 +1008,28 @@ fn get_plugin_metadata(library_path: &Path) -> Result<crate::plugins::loader::Pl
     }
     let meta: crate::plugins::loader::PluginMetadataDump = serde_json::from_slice(&output.stdout)?;
     Ok(meta)
+}
+
+fn metadata_from_manifest(
+    manifest: &manifest::PluginManifest,
+    commands: Vec<RegisteredCommand>,
+) -> crate::plugins::loader::PluginMetadataDump {
+    let commands = if commands.is_empty() {
+        vec![RegisteredCommand {
+            name: manifest.name.clone(),
+            description: manifest.description.clone(),
+        }]
+    } else {
+        commands
+    };
+
+    crate::plugins::loader::PluginMetadataDump {
+        name: manifest.name.clone(),
+        version: manifest.version.clone(),
+        description: manifest.description.clone(),
+        capabilities: manifest.permissions.to_capabilities(),
+        commands,
+    }
 }
 
 fn audit_and_approve_capabilities(

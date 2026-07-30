@@ -1,7 +1,10 @@
 //! StarForge Plugin SDK
 //!
-//! Implement the [`StarForgePlugin`] trait and use [`export_plugin!`] to
-//! expose your plugin to the StarForge CLI loader.
+//! Implement the [`StarForgePlugin`] trait and use [`export_plugin!`] for
+//! native plugins or [`export_wasm_plugin_abi!`] for WebAssembly plugins.
+
+/// WASM plugin ABI supported by the StarForge runtime.
+pub const WASM_PLUGIN_ABI_VERSION: i32 = 1;
 
 /// Metadata every plugin must provide.
 pub struct PluginMeta {
@@ -44,6 +47,20 @@ macro_rules! export_plugin {
         ) -> *mut dyn $crate::StarForgePlugin {
             let plugin = <$plugin_type>::default();
             Box::into_raw(Box::new(plugin))
+        }
+    };
+}
+
+/// Exports the WASM plugin ABI version for sandboxed StarForge plugins.
+///
+/// WASM plugins should compile to a WebAssembly target and include this export
+/// so StarForge can reject incompatible modules before execution.
+#[macro_export]
+macro_rules! export_wasm_plugin_abi {
+    () => {
+        #[no_mangle]
+        pub extern "C" fn starforge_plugin_abi_version() -> i32 {
+            $crate::WASM_PLUGIN_ABI_VERSION
         }
     };
 }

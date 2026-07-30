@@ -50,6 +50,8 @@ pub enum PluginLoadError {
         path: String,
         missing: Vec<crate::plugins::Capability>,
     },
+    /// A WASM plugin failed sandbox validation or execution.
+    WasmRuntime { path: String, detail: String },
 }
 
 impl PluginLoadError {
@@ -64,6 +66,7 @@ impl PluginLoadError {
             Self::UntrustedBlocked { .. } => "untrusted_blocked",
             Self::HashMismatch { .. } => "hash_mismatch",
             Self::UnauthorizedCapabilities { .. } => "unauthorized_capabilities",
+            Self::WasmRuntime { .. } => "wasm_runtime",
         }
     }
 
@@ -117,6 +120,11 @@ impl PluginLoadError {
                  Missing approvals: {}\n  \
                  Fix: Re-install and explicitly approve these capabilities.",
                 missing.iter().map(|c| c.name()).collect::<Vec<_>>().join(", ")
+            ),
+            Self::WasmRuntime { path, detail } => format!(
+                "WASM plugin runtime rejected '{path}'.\n  \
+                 Detail: {detail}\n  \
+                 Fix: Check the plugin manifest permissions and rebuild against the supported WASM ABI.",
             ),
         }
     }
@@ -202,6 +210,18 @@ impl PluginManager {
         }
 
         // ── Open the shared library ──────────────────────────────────────────
+        if crate::plugins::wasm_runtime::is_wasm_plugin(Path::new(path_ref)) {
+            let capabilities = plugin_meta
+                .map(|meta| meta.capabilities.as_slice())
+                .unwrap_or(&[]);
+            crate::plugins::wasm_runtime::inspect_wasm_plugin(Path::new(path_ref), capabilities)
+                .map_err(|error| PluginLoadError::WasmRuntime {
+                    path: path_display.clone(),
+                    detail: error.to_string(),
+                })?;
+            return Ok(());
+        }
+
         let library = Library::new(path_ref).map_err(|e| PluginLoadError::InvalidLibrary {
             path: path_display.clone(),
             detail: e.to_string(),
@@ -333,6 +353,24 @@ pub struct PluginMetadataDump {
 
 pub fn dump_plugin_metadata_internal(library_path: &str) -> Result<()> {
     let path = std::path::Path::new(library_path);
+    if crate::plugins::wasm_runtime::is_wasm_plugin(path) {
+        let manifest = manifest::load_manifest_for_library(path)?
+            .ok_or_else(|| anyhow::anyhow!("Missing {}", manifest::MANIFEST_FILENAME))?;
+        let commands = vec![crate::plugins::registry::RegisteredCommand {
+            name: manifest.name.clone(),
+            description: manifest.description.clone(),
+        }];
+        let dump = PluginMetadataDump {
+            name: manifest.name,
+            version: manifest.version,
+            description: manifest.description,
+            capabilities: manifest.permissions.to_capabilities(),
+            commands,
+        };
+        println!("{}", serde_json::to_string(&dump)?);
+        return Ok(());
+    }
+
     let library = unsafe { Library::new(path) }
         .map_err(|e| anyhow::anyhow!("Failed to load library: {}", e))?;
 
@@ -407,6 +445,15 @@ pub fn run_plugin_library_internal(args: &[String]) -> Result<()> {
     }
 
     let path = std::path::Path::new(library_path);
+    if crate::plugins::wasm_runtime::is_wasm_plugin(path) {
+        let permissions =
+            crate::plugins::wasm_runtime::WasmPluginPermissions::from_capabilities(&approved_caps);
+        crate::plugins::wasm_runtime::WasmPluginRuntime::new(permissions)
+            .execute(path, plugin_args)
+            .map_err(|error| anyhow::anyhow!("{}", error))?;
+        return Ok(());
+    }
+
     let library = unsafe { Library::new(path) }
         .map_err(|e| anyhow::anyhow!("Failed to load library: {}", e))?;
 
