@@ -126,6 +126,32 @@ starforge wallet rotate alice --fund
 
 Wallet rotation keeps the same local wallet name in `~/.starforge/config.toml`, but it creates a brand-new on-chain Stellar account keypair. Any scripts, signer sets, or deployment flows that referenced the previous public key still need to be updated separately.
 
+### Multisig ceremonies (treasury / governance transactions)
+
+Coordinate an M-of-N signing session as a single portable file, so no one machine ever needs network access *and* enough signing authority to submit alone:
+
+```bash
+# Coordinator: build the unsigned transaction + manifest into one file
+starforge multisig ceremony start \
+  --source GTREASURY... \
+  --op '{"type":"payment","to":"GDEST...","amount":"5000"}' \
+  --threshold 3 --signers GALICE...,GBOB...,GCAROL...,GDAVE... \
+  --network mainnet --output payout.ceremony
+
+# Each signer (can be on a separate, air-gapped machine): copy the file over
+# (USB drive, QR export/import, or a shared repo/PR) and run
+starforge multisig ceremony sign --input payout.ceremony --wallet alice
+starforge multisig ceremony sign --input payout.ceremony --wallet bob --hardware ledger
+
+# Anyone: check progress before submitting
+starforge multisig ceremony status --input payout.ceremony
+
+# Once the threshold is met: assemble and submit
+starforge multisig ceremony submit --input payout.ceremony
+```
+
+See [docs/multisig-ceremony.md](docs/multisig-ceremony.md) for a full multi-machine walkthrough, including the air-gapped/USB-transfer workflow and the tamper-detection model.
+
 ### Batch payout commands (airdrops & contributor payments)
 
 Pay hundreds or thousands of recipients from a CSV file with checkpointing, resume support, and fee-bump retry.

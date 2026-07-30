@@ -398,13 +398,13 @@ fn next_sequence_number(source_sequence: &str) -> Result<i64> {
         .context("Source account sequence overflow")
 }
 
-fn signing_key_from_secret(secret_key: &str) -> Result<SigningKey> {
+pub(crate) fn signing_key_from_secret(secret_key: &str) -> Result<SigningKey> {
     let decoded = StellarPrivateKey::from_string(secret_key)
         .context("Failed to parse Stellar secret key for signing")?;
     Ok(SigningKey::from_bytes(&decoded.0))
 }
 
-fn decode_transaction_envelope(transaction_xdr: &str) -> Result<TransactionEnvelope> {
+pub(crate) fn decode_transaction_envelope(transaction_xdr: &str) -> Result<TransactionEnvelope> {
     let xdr_bytes = BASE64
         .decode(transaction_xdr.trim())
         .context("Failed to decode base64 transaction envelope XDR")?;
@@ -412,14 +412,17 @@ fn decode_transaction_envelope(transaction_xdr: &str) -> Result<TransactionEnvel
         .context("Failed to parse transaction envelope XDR")
 }
 
-fn encode_transaction_envelope(envelope: &TransactionEnvelope) -> Result<String> {
+pub(crate) fn encode_transaction_envelope(envelope: &TransactionEnvelope) -> Result<String> {
     let xdr_bytes = envelope
         .to_xdr(Limits::none())
         .context("Failed to encode transaction envelope XDR")?;
     Ok(BASE64.encode(xdr_bytes))
 }
 
-fn transaction_signature_hash(envelope: &TransactionEnvelope, network: &str) -> Result<[u8; 32]> {
+pub(crate) fn transaction_signature_hash(
+    envelope: &TransactionEnvelope,
+    network: &str,
+) -> Result<[u8; 32]> {
     use sha2::{Digest, Sha256};
 
     let network_passphrase = config::get_network_passphrase(network);
@@ -446,7 +449,30 @@ fn transaction_signature_hash(envelope: &TransactionEnvelope, network: &str) -> 
     Ok(Sha256::digest(&payload_xdr).into())
 }
 
-fn envelope_has_signature_hint(envelope: &TransactionEnvelope, hint: &SignatureHint) -> bool {
+/// XDR bytes of the transaction body alone (no signatures). Stable across
+/// signing rounds, so hashing this lets independent signers detect whether
+/// anyone altered the operations/source/sequence/preconditions after the
+/// ceremony began.
+pub(crate) fn transaction_body_bytes(envelope: &TransactionEnvelope) -> Result<Vec<u8>> {
+    match envelope {
+        TransactionEnvelope::Tx(tx_v1) => tx_v1
+            .tx
+            .to_xdr(Limits::none())
+            .context("Failed to encode transaction body XDR"),
+        TransactionEnvelope::TxFeeBump(fee_bump) => fee_bump
+            .tx
+            .to_xdr(Limits::none())
+            .context("Failed to encode fee-bump transaction body XDR"),
+        TransactionEnvelope::TxV0(_) => {
+            anyhow::bail!("TransactionEnvelope::TxV0 is not supported")
+        }
+    }
+}
+
+pub(crate) fn envelope_has_signature_hint(
+    envelope: &TransactionEnvelope,
+    hint: &SignatureHint,
+) -> bool {
     match envelope {
         TransactionEnvelope::TxV0(tx_v0) => tx_v0.signatures.iter().any(|sig| sig.hint.0 == hint.0),
         TransactionEnvelope::Tx(tx_v1) => tx_v1.signatures.iter().any(|sig| sig.hint.0 == hint.0),
@@ -456,7 +482,7 @@ fn envelope_has_signature_hint(envelope: &TransactionEnvelope, hint: &SignatureH
     }
 }
 
-fn append_decorated_signature(
+pub(crate) fn append_decorated_signature(
     envelope: &mut TransactionEnvelope,
     signature: DecoratedSignature,
 ) -> Result<()> {

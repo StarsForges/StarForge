@@ -157,6 +157,16 @@ const COMMANDS: &[CmdEntry] = &[
         ],
     },
     CmdEntry {
+        name: "multisig",
+        about: "Coordinate M-of-N multisig ceremonies as a portable file",
+        subs: &[
+            ("ceremony start", "Build the unsigned transaction + manifest into one file"),
+            ("ceremony sign", "Add this signer's signature (no network access required)"),
+            ("ceremony status", "Show collected vs. required signatures and time to expiry"),
+            ("ceremony submit", "Verify the threshold is met and submit the transaction"),
+        ],
+    },
+    CmdEntry {
         name: "shell",
         about: "Interactive REPL for local Soroban contract testing",
         subs: &[],
