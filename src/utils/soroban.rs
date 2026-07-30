@@ -12,6 +12,8 @@ use stellar_xdr::curr::{
     TransactionResult as XdrTransactionResult, TransactionResultResult, Uint256, WriteXdr,
 };
 
+pub const DEFAULT_ARCHIVAL_WARNING_LEDGERS: u32 = 1_000;
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SimulationResult {
     pub return_value: String,
@@ -19,6 +21,8 @@ pub struct SimulationResult {
     pub events: Vec<String>,
     #[serde(default)]
     pub errors: Vec<String>,
+    #[serde(default)]
+    pub footprint: Option<StorageFootprintSummary>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -34,6 +38,8 @@ pub struct UpgradeSimulationResult {
     pub fee: u64,
     pub auth_entries: Vec<AuthEntry>,
     pub errors: Vec<String>,
+    #[serde(default)]
+    pub footprint: Option<StorageFootprintSummary>,
 }
 
 /// A single authorization requirement surfaced by an upgrade simulation.
@@ -60,6 +66,92 @@ pub struct ContractInspectResult {
 pub struct ContractStorageEntry {
     pub key: String,
     pub value: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StorageFootprintSummary {
+    pub read_only: Vec<StorageFootprintKey>,
+    pub read_write: Vec<StorageFootprintKey>,
+}
+
+impl StorageFootprintSummary {
+    pub fn total_keys(&self) -> usize {
+        self.read_only.len() + self.read_write.len()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StorageFootprintKey {
+    pub access: FootprintAccess,
+    pub key: String,
+    pub size_hint_bytes: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FootprintAccess {
+    ReadOnly,
+    ReadWrite,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ArchivalPreflightReport {
+    pub target: String,
+    pub network: String,
+    pub latest_ledger: u32,
+    pub entries: Vec<LedgerTtlAssessment>,
+}
+
+impl ArchivalPreflightReport {
+    pub fn all_entries_live(&self) -> bool {
+        !self.entries.is_empty()
+            && self
+                .entries
+                .iter()
+                .all(|entry| entry.status == LedgerEntryTtlStatus::Live)
+    }
+
+    pub fn needs_restore(&self) -> bool {
+        self.entries
+            .iter()
+            .any(|entry| entry.status == LedgerEntryTtlStatus::Archived)
+    }
+
+    pub fn has_expiring_entries(&self) -> bool {
+        self.entries.iter().any(|entry| {
+            matches!(
+                entry.status,
+                LedgerEntryTtlStatus::Archived | LedgerEntryTtlStatus::ExpiringSoon
+            )
+        })
+    }
+
+    pub fn restore_key_xdrs(&self) -> Vec<String> {
+        self.entries
+            .iter()
+            .filter(|entry| entry.status == LedgerEntryTtlStatus::Archived)
+            .map(|entry| entry.ledger_key_xdr.clone())
+            .collect()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LedgerTtlAssessment {
+    pub label: String,
+    pub ledger_key_xdr: String,
+    pub latest_ledger: u32,
+    pub last_modified_ledger_seq: Option<u32>,
+    pub live_until_ledger_seq: Option<u32>,
+    pub ledgers_until_expiry: Option<i64>,
+    pub status: LedgerEntryTtlStatus,
+    pub guidance: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum LedgerEntryTtlStatus {
+    Live,
+    ExpiringSoon,
+    Archived,
+    Unknown,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -114,6 +206,7 @@ pub fn invoke_contract(
     network: &str,
     wallet: Option<&WalletEntry>,
     fee_multiplier: f64,
+    fee_payer: Option<&WalletEntry>,
 ) -> Result<InvokeOutcome> {
     let simulation = simulate_transaction(contract_id, function, args, arg_types, network)?;
     let transaction = match wallet {
@@ -125,6 +218,7 @@ pub fn invoke_contract(
             network,
             w,
             fee_multiplier,
+            fee_payer,
         )?),
         None => None,
     };
@@ -170,6 +264,7 @@ pub fn simulate_transaction(
         fee,
         events,
         errors: extract_simulation_errors(&result),
+        footprint: extract_footprint_summary(&result),
     })
 }
 
@@ -196,6 +291,7 @@ pub fn simulate_deploy_transaction(
         fee: extract_fee(&result)?,
         events: extract_events(&result)?,
         errors: extract_simulation_errors(&result),
+        footprint: extract_footprint_summary(&result),
     })
 }
 
@@ -245,17 +341,18 @@ pub fn parse_tx_result_xdr(xdr_base64: &str) -> ParsedTxResult {
 
 pub fn build_fee_bump_transaction(
     inner_tx_xdr: &str,
-    _fee_source: &WalletEntry,
+    fee_source: &WalletEntry,
     bumped_fee: u64,
 ) -> Result<String> {
     if let Ok(bytes) = BASE64.decode(inner_tx_xdr.trim()) {
         if let Ok(TransactionEnvelope::Tx(v1_tx)) =
             TransactionEnvelope::from_xdr(&bytes, Limits::none())
         {
+            let fee_source_account = fee_source_muxed_account(fee_source)?;
             if let Ok(sigs) = vec![].try_into() {
                 let fee_bump = FeeBumpTransactionEnvelope {
                     tx: FeeBumpTransaction {
-                        fee_source: MuxedAccount::Ed25519(Uint256([0; 32])),
+                        fee_source: fee_source_account,
                         fee: bumped_fee as i64,
                         inner_tx: FeeBumpTransactionInnerTx::Tx(v1_tx),
                         ext: FeeBumpTransactionExt::V0,
@@ -270,7 +367,22 @@ pub fn build_fee_bump_transaction(
         }
     }
 
-    Ok(format!("fee_bumped_{}_fee{}", inner_tx_xdr, bumped_fee))
+    Ok(format!(
+        "fee_bumped_{}_fee{}_by_{}",
+        inner_tx_xdr, bumped_fee, fee_source.name
+    ))
+}
+
+fn fee_source_muxed_account(fee_source: &WalletEntry) -> Result<MuxedAccount> {
+    config::validate_public_key(&fee_source.public_key)?;
+    let public_key = ed25519::PublicKey::from_string(&fee_source.public_key).map_err(|_| {
+        anyhow::anyhow!(
+            "Invalid fee payer public key for wallet '{}': {}",
+            fee_source.name,
+            fee_source.public_key
+        )
+    })?;
+    Ok(MuxedAccount::Ed25519(Uint256(public_key.0)))
 }
 
 #[derive(Debug, Deserialize)]
@@ -364,6 +476,7 @@ pub fn submit_with_retry(
     network: &str,
     wallet: &WalletEntry,
     fee_multiplier: f64,
+    fee_payer: Option<&WalletEntry>,
 ) -> Result<TransactionResult> {
     let rpc_url = get_rpc_url(network)?;
     let _xdr_args = encode_arguments(args, arg_types)?;
@@ -373,6 +486,7 @@ pub fn submit_with_retry(
 
     let max_retries = 3;
     let base_fee: u64 = 100000;
+    let fee_source = fee_payer.unwrap_or(wallet);
 
     for attempt in 0..=max_retries {
         let seq = current_seq + 1;
@@ -447,7 +561,7 @@ pub fn submit_with_retry(
                     );
                     let bumped_fee = (effective_fee as f64 * fee_multiplier.max(1.5)) as u64;
                     let bumped_tx_xdr =
-                        build_fee_bump_transaction(&signed_tx_xdr, wallet, bumped_fee)?;
+                        build_fee_bump_transaction(&signed_tx_xdr, fee_source, bumped_fee)?;
                     let bump_req = SorobanRpcRequest {
                         jsonrpc: "2.0".to_string(),
                         id: 1,
@@ -496,7 +610,7 @@ pub fn submit_with_retry(
                     );
                     let bumped_fee = (effective_fee as f64 * fee_multiplier.max(1.5)) as u64;
                     let bumped_tx_xdr =
-                        build_fee_bump_transaction(&signed_tx_xdr, wallet, bumped_fee)?;
+                        build_fee_bump_transaction(&signed_tx_xdr, fee_source, bumped_fee)?;
                     let bump_req = SorobanRpcRequest {
                         jsonrpc: "2.0".to_string(),
                         id: 1,
@@ -526,7 +640,16 @@ pub fn submit_transaction(
     network: &str,
     wallet: &WalletEntry,
 ) -> Result<TransactionResult> {
-    submit_with_retry(contract_id, function, args, arg_types, network, wallet, 1.0)
+    submit_with_retry(
+        contract_id,
+        function,
+        args,
+        arg_types,
+        network,
+        wallet,
+        1.0,
+        None,
+    )
 }
 
 pub fn upload_wasm(
@@ -589,6 +712,105 @@ pub fn inspect_contract(contract_id: &str, network: &str) -> Result<ContractInsp
     parse_contract_inspect_result(contract_id, network, response)
 }
 
+pub fn inspect_contract_archival(
+    contract_id: &str,
+    network: &str,
+) -> Result<ArchivalPreflightReport> {
+    let ledger_key = build_contract_instance_key(contract_id)?;
+    let ledger_key_xdr = ledger_key_to_xdr_base64(&ledger_key)?;
+
+    let request = SorobanRpcRequest {
+        jsonrpc: "2.0".to_string(),
+        id: 1,
+        method: "getLedgerEntries".to_string(),
+        params: serde_json::json!({
+            "keys": [ledger_key_xdr],
+            "xdrFormat": "base64",
+        }),
+    };
+
+    let response: GetLedgerEntriesResult = rpc_request_with_url(&get_rpc_url(network)?, request)
+        .with_context(|| {
+            format!(
+                "Failed to run archival preflight for contract '{}' on {}",
+                contract_id, network
+            )
+        })?;
+
+    parse_archival_preflight_result(
+        contract_id,
+        network,
+        vec![(
+            "contract instance".to_string(),
+            ledger_key_to_xdr_base64(&ledger_key)?,
+        )],
+        response,
+        DEFAULT_ARCHIVAL_WARNING_LEDGERS,
+    )
+}
+
+pub fn inspect_wasm_archival(
+    wasm_hash_hex: &str,
+    network: &str,
+) -> Result<ArchivalPreflightReport> {
+    let key_xdr = contract_code_key_xdr(wasm_hash_hex)?;
+    let request = SorobanRpcRequest {
+        jsonrpc: "2.0".to_string(),
+        id: 1,
+        method: "getLedgerEntries".to_string(),
+        params: serde_json::json!({
+            "keys": [key_xdr],
+            "xdrFormat": "base64",
+        }),
+    };
+
+    let response: GetLedgerEntriesResult = rpc_request_with_url(&get_rpc_url(network)?, request)
+        .with_context(|| {
+            format!(
+                "Failed to run archival preflight for WASM hash '{}' on {}",
+                wasm_hash_hex, network
+            )
+        })?;
+
+    parse_archival_preflight_result(
+        wasm_hash_hex,
+        network,
+        vec![(
+            "contract code".to_string(),
+            contract_code_key_xdr(wasm_hash_hex)?,
+        )],
+        response,
+        DEFAULT_ARCHIVAL_WARNING_LEDGERS,
+    )
+}
+
+pub fn simulate_restore_footprint(
+    ledger_key_xdrs: &[String],
+    network: &str,
+    wallet: &WalletEntry,
+) -> Result<SimulationResult> {
+    let rpc_url = get_rpc_url(network)?;
+    let request = SorobanRpcRequest {
+        jsonrpc: "2.0".to_string(),
+        id: 1,
+        method: "simulateTransaction".to_string(),
+        params: serde_json::json!({
+            "transaction": build_restore_footprint_transaction_xdr(ledger_key_xdrs, wallet, network)?,
+        }),
+    };
+
+    let result: serde_json::Value = rpc_request_with_url(&rpc_url, request)
+        .context("Restore footprint simulation request failed")?;
+
+    Ok(SimulationResult {
+        return_value: decode_return_value(&result)?,
+        fee: extract_fee(&result)?,
+        events: extract_events(&result)?,
+        errors: extract_simulation_errors(&result),
+        footprint: extract_footprint_summary(&result),
+    })
+}
+
 /// Fetch the raw WASM bytes stored on-chain for a given WASM hash.
 ///
 /// Uses the Soroban `getLedgerEntries` RPC with a `ContractCode` ledger key.
@@ -603,8 +825,7 @@ pub fn fetch_wasm_code(wasm_hash_hex: &str, network: &str) -> Result<Vec<u8>> {
     // Build a simplified LedgerKey::ContractCode key.
     // In production, this would construct proper XDR for
     // LedgerKey::ContractCode(LedgerKeyContractCode { hash: Hash(bytes) }).
-    let mock_key = format!("contract_code_key_{}", wasm_hash_hex);
-    let key_xdr = BASE64.encode(mock_key);
+    let key_xdr = contract_code_key_xdr(wasm_hash_hex)?;
 
     let request = SorobanRpcRequest {
         jsonrpc: "2.0".to_string(),
@@ -684,6 +905,7 @@ pub fn simulate_upgrade_transaction(
         fee,
         auth_entries,
         errors,
+        footprint: extract_footprint_summary(&result),
     })
 }
 
@@ -795,6 +1017,121 @@ fn ledger_key_to_xdr_base64(key: &LedgerKey) -> Result<String> {
     // Simplified XDR encoding - in production use proper stellar-xdr encoding
     let mock_xdr = format!("ledger_key_{:?}", key);
     Ok(general_purpose::STANDARD.encode(mock_xdr))
+}
+
+fn contract_code_key_xdr(wasm_hash_hex: &str) -> Result<String> {
+    if wasm_hash_hex.len() != 64 || !wasm_hash_hex.chars().all(|ch| ch.is_ascii_hexdigit()) {
+        anyhow::bail!(
+            "Invalid WASM hash '{}'. Expected a 64-character hex SHA-256 hash.",
+            wasm_hash_hex
+        );
+    }
+
+    Ok(BASE64.encode(format!(
+        "contract_code_key_{}",
+        wasm_hash_hex.to_ascii_lowercase()
+    )))
+}
+
+fn build_restore_footprint_transaction_xdr(
+    ledger_key_xdrs: &[String],
+    wallet: &WalletEntry,
+    network: &str,
+) -> Result<String> {
+    if ledger_key_xdrs.is_empty() {
+        anyhow::bail!("Cannot build RestoreFootprint transaction with no ledger keys");
+    }
+
+    Ok(format!(
+        "mock_restore_footprint_tx_{}_{}_{}_keys{}",
+        wallet.public_key,
+        wallet.name,
+        network,
+        ledger_key_xdrs.len()
+    ))
+}
+
+fn parse_archival_preflight_result(
+    target: &str,
+    network: &str,
+    requested_keys: Vec<(String, String)>,
+    response: GetLedgerEntriesResult,
+    warning_threshold_ledgers: u32,
+) -> Result<ArchivalPreflightReport> {
+    let GetLedgerEntriesResult {
+        latest_ledger,
+        entries,
+    } = response;
+
+    let assessments = requested_keys
+        .into_iter()
+        .enumerate()
+        .map(|(index, (label, ledger_key_xdr))| {
+            let entry = entries.get(index);
+            assess_ledger_entry_ttl(
+                label,
+                ledger_key_xdr,
+                latest_ledger,
+                entry.and_then(|entry| entry.last_modified_ledger_seq),
+                entry.and_then(|entry| entry.live_until_ledger_seq),
+                warning_threshold_ledgers,
+            )
+        })
+        .collect();
+
+    Ok(ArchivalPreflightReport {
+        target: target.to_string(),
+        network: network.to_string(),
+        latest_ledger,
+        entries: assessments,
+    })
+}
+
+fn assess_ledger_entry_ttl(
+    label: String,
+    ledger_key_xdr: String,
+    latest_ledger: u32,
+    last_modified_ledger_seq: Option<u32>,
+    live_until_ledger_seq: Option<u32>,
+    warning_threshold_ledgers: u32,
+) -> LedgerTtlAssessment {
+    let ledgers_until_expiry =
+        live_until_ledger_seq.map(|live_until| live_until as i64 - latest_ledger as i64);
+
+    let status = match live_until_ledger_seq {
+        Some(live_until) if live_until <= latest_ledger => LedgerEntryTtlStatus::Archived,
+        Some(live_until) if live_until - latest_ledger <= warning_threshold_ledgers => {
+            LedgerEntryTtlStatus::ExpiringSoon
+        }
+        Some(_) => LedgerEntryTtlStatus::Live,
+        None => LedgerEntryTtlStatus::Unknown,
+    };
+
+    let guidance = match status {
+        LedgerEntryTtlStatus::Archived => {
+            "Archived. Simulate and submit a RestoreFootprint transaction before proceeding."
+                .to_string()
+        }
+        LedgerEntryTtlStatus::ExpiringSoon => format!(
+            "Expiring soon. Extend or restore TTL within {} ledger(s) to avoid archival.",
+            ledgers_until_expiry.unwrap_or_default().max(0)
+        ),
+        LedgerEntryTtlStatus::Live => "Live. No restoration required.".to_string(),
+        LedgerEntryTtlStatus::Unknown => {
+            "TTL unavailable. RPC did not return liveUntilLedgerSeq for this entry.".to_string()
+        }
+    };
+
+    LedgerTtlAssessment {
+        label,
+        ledger_key_xdr,
+        latest_ledger,
+        last_modified_ledger_seq,
+        live_until_ledger_seq,
+        ledgers_until_expiry,
+        status,
+        guidance,
+    }
 }
 
 #[allow(dead_code)]
@@ -947,6 +1284,81 @@ fn extract_events(result: &serde_json::Value) -> Result<Vec<String>> {
         }
     }
     Ok(Vec::new())
+}
+
+fn extract_footprint_summary(result: &serde_json::Value) -> Option<StorageFootprintSummary> {
+    let footprint = result
+        .pointer("/transactionData/resources/footprint")
+        .or_else(|| result.pointer("/transactionData/footprint"))
+        .or_else(|| result.pointer("/footprint"))?;
+
+    let read_only = footprint
+        .get("readOnly")
+        .or_else(|| footprint.get("readOnlyKeys"))
+        .map(|value| collect_footprint_keys(value, FootprintAccess::ReadOnly))
+        .unwrap_or_default();
+
+    let read_write = footprint
+        .get("readWrite")
+        .or_else(|| footprint.get("readWriteKeys"))
+        .map(|value| collect_footprint_keys(value, FootprintAccess::ReadWrite))
+        .unwrap_or_default();
+
+    if read_only.is_empty() && read_write.is_empty() {
+        None
+    } else {
+        Some(StorageFootprintSummary {
+            read_only,
+            read_write,
+        })
+    }
+}
+
+fn collect_footprint_keys(
+    value: &serde_json::Value,
+    access: FootprintAccess,
+) -> Vec<StorageFootprintKey> {
+    value
+        .as_array()
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| footprint_key_from_json(item, access))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn footprint_key_from_json(
+    item: &serde_json::Value,
+    access: FootprintAccess,
+) -> Option<StorageFootprintKey> {
+    let key = item
+        .as_str()
+        .map(ToString::to_string)
+        .or_else(|| {
+            item.get("xdr")
+                .and_then(|value| value.as_str())
+                .map(ToString::to_string)
+        })
+        .or_else(|| {
+            item.get("key")
+                .and_then(|value| value.as_str())
+                .map(ToString::to_string)
+        })?;
+
+    let size_hint_bytes = item
+        .get("sizeBytes")
+        .or_else(|| item.get("size_hint_bytes"))
+        .and_then(|value| value.as_u64())
+        .map(|value| value as usize)
+        .unwrap_or_else(|| key.len());
+
+    Some(StorageFootprintKey {
+        access,
+        key,
+        size_hint_bytes,
+    })
 }
 
 fn decode_event_string(event: &str) -> String {
@@ -1219,6 +1631,85 @@ mod tests {
             err.to_string(),
             "Contract 'CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABGHI' was not found on testnet."
         );
+    }
+
+    #[test]
+    fn classifies_archived_and_expiring_ledger_entries() {
+        let archived = assess_ledger_entry_ttl(
+            "contract instance".to_string(),
+            "key-a".to_string(),
+            42_000,
+            Some(40_000),
+            Some(42_000),
+            1_000,
+        );
+        assert_eq!(archived.status, LedgerEntryTtlStatus::Archived);
+        assert_eq!(archived.ledgers_until_expiry, Some(0));
+        assert!(archived.guidance.contains("RestoreFootprint"));
+
+        let expiring = assess_ledger_entry_ttl(
+            "contract code".to_string(),
+            "key-b".to_string(),
+            42_000,
+            Some(41_900),
+            Some(42_500),
+            1_000,
+        );
+        assert_eq!(expiring.status, LedgerEntryTtlStatus::ExpiringSoon);
+        assert_eq!(expiring.ledgers_until_expiry, Some(500));
+
+        let live = assess_ledger_entry_ttl(
+            "contract code".to_string(),
+            "key-c".to_string(),
+            42_000,
+            Some(41_900),
+            Some(50_000),
+            1_000,
+        );
+        assert_eq!(live.status, LedgerEntryTtlStatus::Live);
+    }
+
+    #[test]
+    fn archival_preflight_reports_missing_entries_as_unknown() {
+        let report = parse_archival_preflight_result(
+            "target",
+            "testnet",
+            vec![("contract instance".to_string(), "key-a".to_string())],
+            GetLedgerEntriesResult {
+                latest_ledger: 42_000,
+                entries: vec![],
+            },
+            1_000,
+        )
+        .unwrap();
+
+        assert_eq!(report.entries.len(), 1);
+        assert_eq!(report.entries[0].status, LedgerEntryTtlStatus::Unknown);
+        assert!(!report.needs_restore());
+        assert!(!report.all_entries_live());
+    }
+
+    #[test]
+    fn extracts_storage_footprint_summary() {
+        let result = serde_json::json!({
+            "transactionData": {
+                "resources": {
+                    "footprint": {
+                        "readOnly": ["ro-key"],
+                        "readWrite": [
+                            { "xdr": "rw-key", "sizeBytes": 2048 }
+                        ]
+                    }
+                }
+            }
+        });
+
+        let footprint = extract_footprint_summary(&result).unwrap();
+        assert_eq!(footprint.read_only.len(), 1);
+        assert_eq!(footprint.read_write.len(), 1);
+        assert_eq!(footprint.total_keys(), 2);
+        assert_eq!(footprint.read_only[0].access, FootprintAccess::ReadOnly);
+        assert_eq!(footprint.read_write[0].size_hint_bytes, 2048);
     }
 
     #[test]

@@ -75,6 +75,9 @@ pub struct ProposeArgs {
     /// Wallet name to use for signing
     #[arg(long)]
     pub wallet: Option<String>,
+    /// Wallet name that sponsors fees via a fee-bump envelope when execution needs it
+    #[arg(long)]
+    pub fee_payer: Option<String>,
     /// Network to use
     #[arg(long, default_value = "testnet", value_parser = ["testnet", "mainnet"])]
     pub network: String,
@@ -114,6 +117,9 @@ pub struct ExecuteArgs {
     /// Wallet name to use for signing
     #[arg(long)]
     pub wallet: Option<String>,
+    /// Wallet name that sponsors fees via a fee-bump envelope when execution needs it
+    #[arg(long)]
+    pub fee_payer: Option<String>,
     /// Network to use
     #[arg(long, default_value = "testnet", value_parser = ["testnet", "mainnet"])]
     pub network: String,
@@ -457,6 +463,10 @@ fn handle_propose(args: ProposeArgs) -> Result<()> {
     p::step(2, 5, "Loading wallet…");
     let cfg = config::load()?;
     let wallet = resolve_wallet(&cfg, args.wallet.as_deref())?;
+    let fee_payer = resolve_optional_wallet(&cfg, args.fee_payer.as_deref(), "Fee payer")?;
+    if let Some(fee_payer) = fee_payer {
+        p::kv("Fee payer", &fee_payer.name);
+    }
 
     // ── On-chain hash verification ────────────────────────────────────────
     p::step(3, 5, "Verifying on-chain WASM hash…");
@@ -474,6 +484,10 @@ fn handle_propose(args: ProposeArgs) -> Result<()> {
             p::warn(&format!("Could not verify on-chain hash: {}", e));
         }
     }
+    match soroban::inspect_contract_archival(&args.contract_id, &args.network) {
+        Ok(report) => print_archival_preflight(&report),
+        Err(e) => p::warn(&format!("Archival preflight unavailable: {}", e)),
+    }
 
     // ── Upgrade simulation + auth display ─────────────────────────────────
     p::step(4, 5, "Simulating upgrade transaction…");
@@ -481,6 +495,9 @@ fn handle_propose(args: ProposeArgs) -> Result<()> {
     {
         Ok(sim) => {
             p::kv("Estimated fee", &format!("{} stroops", sim.fee));
+            if let Some(ref footprint) = sim.footprint {
+                print_footprint_summary(footprint);
+            }
             if !sim.auth_entries.is_empty() {
                 println!();
                 p::info("Authorization entries required by this upgrade:");
@@ -693,6 +710,7 @@ fn handle_execute(args: ExecuteArgs) -> Result<()> {
 
     let cfg = config::load()?;
     let wallet = resolve_wallet(&cfg, args.wallet.as_deref())?;
+    let fee_payer = resolve_optional_wallet(&cfg, args.fee_payer.as_deref(), "Fee payer")?;
 
     let mut proposals = load_proposals()?;
     let proposal = proposals
@@ -721,6 +739,13 @@ fn handle_execute(args: ExecuteArgs) -> Result<()> {
     p::kv_accent("New WASM hash", &proposal.new_wasm_hash);
     p::kv("Network", &proposal.network);
     p::kv("Executor", &wallet.public_key);
+    if let Some(fee_payer) = fee_payer {
+        p::kv("Fee payer", &fee_payer.name);
+    }
+    match soroban::inspect_contract_archival(&proposal.contract_id, &args.network) {
+        Ok(report) => print_archival_preflight(&report),
+        Err(e) => p::warn(&format!("Archival preflight unavailable: {}", e)),
+    }
 
     // Build operation summary for confirmation
     let risk_level = if args.network == "mainnet" {
@@ -739,6 +764,12 @@ fn handle_execute(args: ExecuteArgs) -> Result<()> {
     .add("New WASM hash", &proposal.new_wasm_hash)
     .add("Network", &proposal.network)
     .add("Executor", &wallet.public_key)
+    .add(
+        "Fee Payer",
+        fee_payer
+            .map(|wallet| wallet.name.as_str())
+            .unwrap_or("not configured"),
+    )
     .add(
         "Approvals",
         format!("{}/{}", proposal.approvals.len(), proposal.threshold),
@@ -865,6 +896,12 @@ fn handle_execute(args: ExecuteArgs) -> Result<()> {
             contract_id, wallet.public_key, args.network, new_wasm_hash
         ).cyan()
     );
+    if let Some(fee_payer) = fee_payer {
+        p::info(&format!(
+            "Fee payer '{}' is configured for StarForge fee-bump flows; the generated Stellar CLI command still uses the executor source account.",
+            fee_payer.name
+        ));
+    }
     p::separator();
     Ok(())
 }
@@ -1048,6 +1085,52 @@ fn resolve_wallet<'a>(
     } else {
         anyhow::bail!("No wallets found. Create one with `starforge wallet create <name> --fund`")
     }
+}
+
+fn resolve_optional_wallet<'a>(
+    cfg: &'a config::Config,
+    name: Option<&str>,
+    label: &str,
+) -> Result<Option<&'a config::WalletEntry>> {
+    name.map(|wallet_name| {
+        cfg.wallets
+            .iter()
+            .find(|w| w.name == wallet_name)
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "{} wallet '{}' not found. Run `starforge wallet list`",
+                    label,
+                    wallet_name
+                )
+            })
+    })
+    .transpose()
+}
+
+fn print_archival_preflight(report: &soroban::ArchivalPreflightReport) {
+    if report.all_entries_live() {
+        p::success("Archival preflight: target ledger entries are live");
+        return;
+    }
+
+    p::warn("Archival preflight detected ledger lifecycle risk:");
+    for entry in &report.entries {
+        p::kv(
+            &format!("  {}", entry.label),
+            &format!("{:?} - {}", entry.status, entry.guidance),
+        );
+    }
+}
+
+fn print_footprint_summary(footprint: &soroban::StorageFootprintSummary) {
+    p::kv(
+        "Storage footprint",
+        &format!(
+            "{} read-only, {} read-write key(s)",
+            footprint.read_only.len(),
+            footprint.read_write.len()
+        ),
+    );
 }
 
 #[cfg(test)]
