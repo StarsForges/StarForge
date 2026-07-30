@@ -1,4 +1,5 @@
 use crate::plugins::interface::{is_core_version_compatible, CORE_VERSION};
+use crate::plugins::wasm_runtime::WasmPluginPermissions;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -25,6 +26,9 @@ pub struct PluginManifest {
     /// Optional maximum StarForge version (semver).
     #[serde(default)]
     pub starforge_version_max: Option<String>,
+    /// WASM plugin sandbox permissions.
+    #[serde(default)]
+    pub permissions: WasmPluginPermissions,
 }
 
 impl PluginManifest {
@@ -199,6 +203,7 @@ mod tests {
             description: String::new(),
             starforge_version_min: None,
             starforge_version_max: None,
+            permissions: WasmPluginPermissions::default(),
         };
         assert!(manifest.validate().is_ok());
     }
@@ -219,6 +224,7 @@ mod tests {
             description: String::new(),
             starforge_version_min: None,
             starforge_version_max: None,
+            permissions: WasmPluginPermissions::default(),
         };
         assert!(manifest.validate().is_err());
     }
@@ -243,5 +249,31 @@ starforge_version = "{core}"
         fs::write(&lib, b"dummy").unwrap();
         let loaded = load_manifest_for_library(&lib).unwrap().unwrap();
         assert_eq!(loaded.name, "myplugin");
+    }
+
+    #[test]
+    fn manifest_parses_wasm_permissions() {
+        let manifest: PluginManifest = toml::from_str(&format!(
+            r#"
+name = "wasm-helper"
+version = "1.0.0"
+starforge_version = "{core}"
+
+[permissions]
+network = true
+fs_read = ["./templates"]
+fs_write = []
+config = false
+"#,
+            core = CORE_VERSION
+        ))
+        .unwrap();
+
+        assert!(manifest.permissions.network);
+        assert_eq!(
+            manifest.permissions.fs_read,
+            vec![PathBuf::from("./templates")]
+        );
+        assert!(!manifest.permissions.config);
     }
 }

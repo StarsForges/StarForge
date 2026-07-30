@@ -192,7 +192,7 @@ use crate::plugins::Capability;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InstalledPlugin {
     pub name: String,
-    /// Absolute path to the plugin shared library on disk.
+    /// Absolute path to the plugin artifact on disk.
     pub path: String,
     /// Where the plugin came from (empty = installed via --path).
     #[serde(default)]
@@ -449,12 +449,13 @@ pub fn resolve_plugin_library_path(name: &str, explicit: Option<PathBuf>) -> Res
 
 fn candidate_library_names(name: &str) -> Vec<String> {
     let base = format!("libstarforge_{}", name);
+    let wasm = format!("starforge_{name}.wasm");
     if cfg!(target_os = "windows") {
-        vec![format!("{base}.dll")]
+        vec![format!("{base}.dll"), wasm]
     } else if cfg!(target_os = "macos") {
-        vec![format!("{base}.dylib"), format!("{base}.so")]
+        vec![format!("{base}.dylib"), format!("{base}.so"), wasm]
     } else {
-        vec![format!("{base}.so")]
+        vec![format!("{base}.so"), wasm]
     }
 }
 
