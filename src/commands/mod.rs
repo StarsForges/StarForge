@@ -13,6 +13,7 @@ pub mod inspect;
 pub mod invoke;
 pub mod lint;
 pub mod monitor;
+pub mod multisig_ceremony;
 pub mod network;
 pub mod new;
 pub mod node;

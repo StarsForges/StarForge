@@ -61,6 +61,10 @@ enum Commands {
     #[command(subcommand)]
     Config(commands::config::ConfigCommands),
 
+    /// Coordinate M-of-N multisig ceremonies as a portable file (start/sign/status/submit)
+    #[command(subcommand)]
+    Multisig(commands::multisig_ceremony::MultisigCommands),
+
     /// Manage telemetry collection
     #[command(subcommand)]
     Telemetry(commands::telemetry::TelemetryCommands),
@@ -185,6 +189,7 @@ fn main() {
         Commands::Deploy(_) => "deploy",
         Commands::Info => "info",
         Commands::Config(_) => "config",
+        Commands::Multisig(_) => "multisig",
         Commands::Telemetry(_) => "telemetry",
         Commands::Batch(_) => "batch",
         Commands::Tx(_) => "tx",
@@ -216,6 +221,7 @@ fn main() {
         Commands::Deploy(args) => commands::deploy::handle(args),
         Commands::Info => commands::info::handle(),
         Commands::Config(cmd) => commands::config::handle(cmd),
+        Commands::Multisig(cmd) => commands::multisig_ceremony::handle(cmd),
         Commands::Telemetry(cmd) => commands::telemetry::handle(cmd),
         Commands::Batch(args) => commands::batch::handle(args),
         Commands::Tx(args) => commands::tx::handle(args),
