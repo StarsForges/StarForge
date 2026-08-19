@@ -1,0 +1,129 @@
+use crate::commands::ai::impact::analyzer::AnalysisReport;
+use crate::commands::ai::impact::redactor::redact_text;
+use anyhow::{Context, Result};
+use async_openai::{
+    config::OpenAIConfig,
+    types::{ChatCompletionRequestMessage, CreateChatCompletionRequest, Role},
+    Client,
+};
+
+/// Generates a rich, human-readable narrative explanation of the social and economic impact
+/// using the OpenAI client, incorporating the policy profile context and all computed scores.
+pub async fn generate_ai_narrative(
+    client: &Client<OpenAIConfig>,
+    report: &AnalysisReport,
+    model: &str,
+) -> Result<String> {
+    // 1. Prepare details for the AI prompt
+    let findings_str = if report.findings.is_empty() {
+        "No issues or warnings found.".to_string()
+    } else {
+        report
+            .findings
+            .iter()
+            .map(|f| {
+                format!(
+                    "- [{}] (Severity: {}): {} (Citation: {})",
+                    f.category, f.severity, f.message, f.citation
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+
+    let signals_str = if let Some(sig) = &report.source_signals {
+        format!(
+            "Source Code Signals:\n- Admin Gates: {}\n- Timelocks: {}\n- Upgradeable: {}\n- KYC Logic: {}\n- Fee Logic: {}\n- Loop Count: {}\n- Storage Writes: {}\n- Cross-Contract Calls: {}",
+            sig.has_admin_only_gates,
+            sig.has_timelocks,
+            sig.has_upgrade_mechanisms,
+            sig.has_kyc_checks,
+            sig.has_fee_mechanisms,
+            sig.loop_count,
+            sig.storage_write_count,
+            sig.cross_contract_call_count
+        )
+    } else {
+        "No source code signals analyzed.".to_string()
+    };
+
+    let prompt = format!(
+        "Analyze the social and economic impact profile of the following Soroban smart contract:\n\n\
+        Contract Name: {}\n\
+        Policy Profile Context: {}\n\n\
+        Computed Scores (0-100):\n\
+        - Economic Concentration: {:.1} (Threshold Met: {})\n\
+        - Fee Burden: {:.1} (Threshold Met: {})\n\
+        - Accessibility: {:.1} (Threshold Met: {})\n\
+        - Sustainability: {:.1} (Threshold Met: {})\n\
+        - Governance Safety: {:.1} (Threshold Met: {})\n\
+        - Public Good Alignment: {:.1}\n\
+        - Overall Weighted Score: {:.1}\n\n\
+        {}\n\n\
+        Findings:\n\
+        {}\n\n\
+        Please write a professional, cohesive executive narrative report including:\n\
+        1. EXECUTIVE SUMMARY: A high-level assessment of the contract's impact alignment.\n\
+        2. ECONOMIC & SOCIAL HIGHLIGHTS: Analysis of tokenomics, fee distribution, and ecosystem fairness.\n\
+        3. ACCESS & GOVERNANCE COMPLIANCE: Evaluation of centralization, KYC constraints, and upgrade safety.\n\
+        4. ROADMAP TO IMPROVEMENT: Actionable engineering steps to raise the scores according to the '{}' profile rules.",
+        report.contract_name,
+        report.policy_profile,
+        report.scores.economic_concentration.raw,
+        report.scores.economic_concentration.threshold_met,
+        report.scores.fee_burden.raw,
+        report.scores.fee_burden.threshold_met,
+        report.scores.accessibility.raw,
+        report.scores.accessibility.threshold_met,
+        report.scores.sustainability.raw,
+        report.scores.sustainability.threshold_met,
+        report.scores.governance_safety.raw,
+        report.scores.governance_safety.threshold_met,
+        report.scores.public_good.raw,
+        report.scores.overall,
+        signals_str,
+        findings_str,
+        report.policy_profile
+    );
+
+    // Redact prompt before sending to AI to prevent leak of local paths/keys in prompts
+    let redacted_prompt = redact_text(&prompt);
+
+    let system_prompt = "You are a senior auditor and token economist specializing in Stellar and Soroban contract ecosystems. Analyze the contract's social, economic, and governance footprint. Return a structured Markdown report.";
+
+    let messages = vec![
+        ChatCompletionRequestMessage {
+            role: Role::System,
+            content: Some(system_prompt.to_string()),
+            name: None,
+            function_call: None,
+        },
+        ChatCompletionRequestMessage {
+            role: Role::User,
+            content: Some(redacted_prompt),
+            name: None,
+            function_call: None,
+        },
+    ];
+
+    let request = CreateChatCompletionRequest {
+        model: model.to_string(),
+        messages,
+        ..Default::default()
+    };
+
+    // Reuse execute_chat from parent mod so AI telemetry is correctly tracked.
+    let response = crate::commands::ai::execute_chat(client, "impact_analysis", model, request)
+        .await
+        .context("Failed to generate AI narrative chat completion")?;
+
+    let text = response
+        .choices
+        .first()
+        .and_then(|c| c.message.content.as_deref())
+        .unwrap_or("No narrative generated by the AI provider.")
+        .trim();
+
+    // Redact the output report just in case the AI generated any local paths/secrets
+    Ok(redact_text(text))
+}

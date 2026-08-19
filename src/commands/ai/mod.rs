@@ -1,3 +1,4 @@
+pub mod impact;
 mod security_training;
 mod telemetry;
 
@@ -96,6 +97,32 @@ enum AiCommands {
     /// Interactive AI security training: lessons, quizzes, and progress tracking
     #[command(subcommand)]
     SecurityTraining(security_training::SecurityTrainingCommands),
+    /// Analyze social and economic impact of a Soroban contract
+    Impact {
+        /// Path to the contract metadata or WASM/Rust source file
+        #[arg(long, short)]
+        file: String,
+
+        /// Policy profile to evaluate: community, enterprise, public-sector, protocol-maintainer (default: community)
+        #[arg(long, short, default_value = "community", value_parser = ["community", "enterprise", "public-sector", "protocol-maintainer"])]
+        profile: String,
+
+        /// Optional path to a previous report JSON to compare versions
+        #[arg(long)]
+        compare: Option<String>,
+
+        /// Report output format: json or markdown (default: markdown)
+        #[arg(long, short, default_value = "markdown", value_parser = ["json", "markdown"])]
+        format: String,
+
+        /// Optional output path to write the generated report
+        #[arg(long, short)]
+        output: Option<String>,
+
+        /// Run using the local deterministic engine only, bypassing AI call
+        #[arg(long)]
+        deterministic: bool,
+    },
 }
 
 pub async fn handle(args: AiArgs) -> Result<()> {
@@ -103,6 +130,24 @@ pub async fn handle(args: AiArgs) -> Result<()> {
     match args.command {
         AiCommands::Telemetry(cmd) => return telemetry::handle(cmd),
         AiCommands::SecurityTraining(cmd) => return security_training::handle(cmd),
+        AiCommands::Impact {
+            file,
+            profile,
+            compare,
+            format,
+            output,
+            deterministic,
+        } => {
+            return impact::handle_impact(
+                &file,
+                &profile,
+                compare.as_deref(),
+                &format,
+                output.as_deref(),
+                deterministic,
+            )
+            .await;
+        }
         _ => {}
     }
 
@@ -136,7 +181,9 @@ pub async fn handle(args: AiArgs) -> Result<()> {
             file,
             error_type,
         } => explain_error(&client, message, file, error_type).await,
-        AiCommands::Telemetry(_) | AiCommands::SecurityTraining(_) => unreachable!(),
+        AiCommands::Telemetry(_) | AiCommands::SecurityTraining(_) | AiCommands::Impact { .. } => {
+            unreachable!()
+        }
     }
 }
 
@@ -147,7 +194,7 @@ pub async fn handle(args: AiArgs) -> Result<()> {
 /// feature. Centralizing this means every AI subcommand is measured
 /// uniformly, satisfying the AI telemetry requirements without duplicating
 /// instrumentation in each handler.
-async fn execute_chat(
+pub(crate) async fn execute_chat(
     client: &Client<OpenAIConfig>,
     feature: &str,
     model: &str,
