@@ -198,6 +198,7 @@ pub struct InvokeOutcome {
     pub transaction: Option<TransactionResult>,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn invoke_contract(
     contract_id: &str,
     function: &str,
@@ -468,6 +469,7 @@ pub fn poll_transaction_status(
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn submit_with_retry(
     contract_id: &str,
     function: &str,
