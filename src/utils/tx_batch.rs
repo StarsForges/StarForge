@@ -113,16 +113,9 @@ pub struct BatchRecipientRow {
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum RowStatus {
     Pending,
-    Submitted {
-        tx_hash: String,
-    },
-    Confirmed {
-        tx_hash: String,
-    },
-    Failed {
-        error: String,
-        attempts: u32,
-    },
+    Submitted { tx_hash: String },
+    Confirmed { tx_hash: String },
+    Failed { error: String, attempts: u32 },
 }
 
 /// A single row in the resumable batch checkpoint.
@@ -372,10 +365,7 @@ pub fn init_checkpoint(
         created_at: now.clone(),
         updated_at: now,
         next_sequence: starting_sequence,
-        rows: rows
-            .iter()
-            .map(BatchRowState::from_recipient)
-            .collect(),
+        rows: rows.iter().map(BatchRowState::from_recipient).collect(),
     })
 }
 
@@ -391,14 +381,14 @@ pub fn save_checkpoint_atomic(path: &Path, checkpoint: &BatchCheckpoint) -> Resu
     let tmp_path = path.with_extension("batch-state.json.tmp");
     let json = serde_json::to_string_pretty(checkpoint)
         .with_context(|| "Failed to serialize batch checkpoint")?;
-    fs::write(&tmp_path, json)
-        .with_context(|| format!("Failed to write checkpoint temp file {}", tmp_path.display()))?;
-    fs::rename(&tmp_path, path).with_context(|| {
+    fs::write(&tmp_path, json).with_context(|| {
         format!(
-            "Failed to atomically replace checkpoint {}",
-            path.display()
+            "Failed to write checkpoint temp file {}",
+            tmp_path.display()
         )
     })?;
+    fs::rename(&tmp_path, path)
+        .with_context(|| format!("Failed to atomically replace checkpoint {}", path.display()))?;
     Ok(())
 }
 
@@ -439,10 +429,7 @@ fn parse_asset(asset: &str) -> Result<(Option<String>, Option<String>)> {
     }
 }
 
-pub fn validate_payer_balances(
-    checkpoint: &BatchCheckpoint,
-    network: &str,
-) -> Result<()> {
+pub fn validate_payer_balances(checkpoint: &BatchCheckpoint, network: &str) -> Result<()> {
     let account = horizon::fetch_account(&checkpoint.payer_public_key, network)
         .with_context(|| "Failed to fetch payer account for balance validation")?;
 
@@ -528,12 +515,8 @@ pub fn execute_batch_chunk(
         .collect::<Result<Vec<_>>>()?;
 
     let sequence = (checkpoint.next_sequence + 1).to_string();
-    let tx_result = horizon::build_and_simulate_batch(
-        &checkpoint.payer_public_key,
-        &ops,
-        &sequence,
-        network,
-    )?;
+    let tx_result =
+        horizon::build_and_simulate_batch(&checkpoint.payer_public_key, &ops, &sequence, network)?;
 
     for &idx in row_indices {
         checkpoint.rows[idx].status = RowStatus::Submitted {
@@ -583,19 +566,14 @@ pub fn run_batch_pay(
 ) -> Result<(BatchCheckpoint, BatchRunSummary)> {
     let checkpoint_path = checkpoint_path_for(&options.csv_path);
     let mut checkpoint = if options.resume || checkpoint_path.exists() {
-        load_checkpoint(&checkpoint_path)?
-            .ok_or_else(|| anyhow::anyhow!("Expected checkpoint at {}", checkpoint_path.display()))?
+        load_checkpoint(&checkpoint_path)?.ok_or_else(|| {
+            anyhow::anyhow!("Expected checkpoint at {}", checkpoint_path.display())
+        })?
     } else {
         let rows = parse_batch_csv(&options.csv_path)?;
         validate_recipient_rows(&rows)?;
         let sequence = horizon::fetch_account_sequence(&wallet.public_key, &options.network)?;
-        init_checkpoint(
-            &options.csv_path,
-            wallet,
-            &options.network,
-            rows,
-            sequence,
-        )?
+        init_checkpoint(&options.csv_path, wallet, &options.network, rows, sequence)?
     };
 
     if checkpoint.wallet != wallet.name {
@@ -621,7 +599,8 @@ pub fn run_batch_pay(
         return Ok((checkpoint, summary));
     }
 
-    let secret = secret_key.ok_or_else(|| anyhow::anyhow!("Secret key required for live batch pay"))?;
+    let secret =
+        secret_key.ok_or_else(|| anyhow::anyhow!("Secret key required for live batch pay"))?;
 
     validate_payer_balances(&checkpoint, &options.network)?;
 
@@ -639,7 +618,12 @@ pub fn run_batch_pay(
                 save_checkpoint_atomic(&checkpoint_path, &checkpoint)?;
             }
             Err(error) => {
-                mark_chunk_failed(&mut checkpoint, &chunk, &error.to_string(), options.max_retries);
+                mark_chunk_failed(
+                    &mut checkpoint,
+                    &chunk,
+                    &error.to_string(),
+                    options.max_retries,
+                );
                 save_checkpoint_atomic(&checkpoint_path, &checkpoint)?;
             }
         }

@@ -678,7 +678,8 @@ pub fn submit_payment_with_retry(
                     continue;
                 }
 
-                if horizon_error_indicates(&err_msg, "txINSUFFICIENT_FEE") && attempt < max_retries {
+                if horizon_error_indicates(&err_msg, "txINSUFFICIENT_FEE") && attempt < max_retries
+                {
                     effective_fee = (effective_fee as f64 * fee_multiplier.max(1.5)) as u64;
                     signed_xdr = build_horizon_fee_bump(&signed_xdr, effective_fee);
                     continue;
@@ -698,7 +699,9 @@ pub fn submit_payment_with_retry(
 
 fn extract_source_from_xdr(transaction_xdr: &str) -> Option<String> {
     use base64::{engine::general_purpose, Engine as _};
-    let decoded = general_purpose::STANDARD.decode(transaction_xdr.trim()).ok()?;
+    let decoded = general_purpose::STANDARD
+        .decode(transaction_xdr.trim())
+        .ok()?;
     let decoded_str = String::from_utf8_lossy(&decoded);
     if let Some(rest) = decoded_str.strip_prefix("mock_batch_tx_") {
         return rest.split('_').next().map(|s| s.to_string());

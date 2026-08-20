@@ -2,8 +2,8 @@ use anyhow::Result;
 use clap::{Args, Subcommand};
 use colored::*;
 
-use crate::utils::confirmation;
 use crate::utils::config;
+use crate::utils::confirmation;
 use crate::utils::crypto;
 use crate::utils::print as p;
 use crate::utils::tx_batch::{
@@ -166,8 +166,7 @@ fn handle_pay(args: PayArgs, force_resume: bool) -> Result<()> {
     };
 
     if args.dry_run {
-        let (checkpoint, _summary) =
-            tx_batch::run_batch_pay(&options, &wallet, None)?;
+        let (checkpoint, _summary) = tx_batch::run_batch_pay(&options, &wallet, None)?;
         let report = estimate_batch_cost(&checkpoint.rows);
         print_cost_report(&report);
         let summary = summarize_checkpoint(&checkpoint);
@@ -180,11 +179,13 @@ fn handle_pay(args: PayArgs, force_resume: bool) -> Result<()> {
     }
 
     let report_preview = if has_checkpoint {
-        load_checkpoint(&checkpoint_path)?
-            .map(|cp| estimate_batch_cost(&cp.rows))
+        load_checkpoint(&checkpoint_path)?.map(|cp| estimate_batch_cost(&cp.rows))
     } else {
         let rows = parse_batch_csv(&args.file)?;
-        let row_states: Vec<_> = rows.iter().map(tx_batch::BatchRowState::from_recipient).collect();
+        let row_states: Vec<_> = rows
+            .iter()
+            .map(tx_batch::BatchRowState::from_recipient)
+            .collect();
         Some(estimate_batch_cost(&row_states))
     }
     .unwrap_or(tx_batch::BatchValidationReport {
@@ -209,7 +210,10 @@ fn handle_pay(args: PayArgs, force_resume: bool) -> Result<()> {
     )
     .add("Wallet", &wallet.name)
     .add("CSV File", args.file.display().to_string())
-    .add("Transactions (est.)", report_preview.transaction_count.to_string())
+    .add(
+        "Transactions (est.)",
+        report_preview.transaction_count.to_string(),
+    )
     .add(
         "Estimated Fees",
         format!(
@@ -293,14 +297,14 @@ fn print_cost_report(report: &tx_batch::BatchValidationReport) {
     p::kv("Transactions (est.)", &report.transaction_count.to_string());
     p::kv(
         "Estimated Fees",
-        &format!("{:.7} XLM", report.estimated_fee_stroops as f64 / 10_000_000.0),
+        &format!(
+            "{:.7} XLM",
+            report.estimated_fee_stroops as f64 / 10_000_000.0
+        ),
     );
 
     for (asset, total) in &report.total_payment_amounts {
-        p::kv(
-            &format!("Total {asset}"),
-            &format!("{total:.7}"),
-        );
+        p::kv(&format!("Total {asset}"), &format!("{total:.7}"));
     }
     p::separator();
 }
