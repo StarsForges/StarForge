@@ -157,6 +157,24 @@ fn estimate_with_bad_simulation_file_json_fails_clearly() {
 }
 
 #[test]
+fn estimate_rejects_zero_batch_size_instead_of_silently_clamping() {
+    let home = isolated_home();
+    let output = starforge(home.path())
+        .args([
+            "cost",
+            "estimate",
+            "invoke",
+            "--batch-size",
+            "0",
+            "--deterministic",
+        ])
+        .output()
+        .expect("spawn estimate");
+    assert!(!output.status.success());
+    assert!(stderr(&output).contains("--batch-size must be at least 1"));
+}
+
+#[test]
 fn save_then_export_round_trips_history_as_json() {
     let home = isolated_home();
     let save = starforge(home.path())

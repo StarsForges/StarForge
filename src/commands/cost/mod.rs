@@ -293,6 +293,9 @@ async fn estimate(
     output: Option<PathBuf>,
 ) -> Result<()> {
     let op = OperationKind::parse(operation)?;
+    if batch_size == 0 {
+        anyhow::bail!("--batch-size must be at least 1 (got 0)");
+    }
     let cfg = config::load().unwrap_or_default();
     let network = network.unwrap_or(cfg.network);
     config::validate_network(&network)?;

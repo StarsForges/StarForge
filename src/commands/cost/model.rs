@@ -33,6 +33,16 @@ const ARCHIVAL_RESTORE_PENALTY_STROOPS: u64 = 50_000;
 /// One XLM in stroops.
 const STROOPS_PER_XLM: f64 = 10_000_000.0;
 
+/// Divides with rounding to the nearest integer instead of truncating, so a
+/// one-time fee split across a batch reconciles with the total as closely as
+/// integer stroops allow (truncation would systematically undercount).
+fn round_div(numerator: u64, denominator: u64) -> u64 {
+    if denominator == 0 {
+        return numerator;
+    }
+    (numerator + denominator / 2) / denominator
+}
+
 /// Network congestion multiplier applied to the base fee component. This is a
 /// coarse heuristic distinguishing quiet testnets from mainnet, not a live
 /// surge-pricing feed.
@@ -175,8 +185,10 @@ impl CostEstimate {
 /// the item count while charging the base transaction fee only once, modeling
 /// how batch operations amortize fixed overhead across many items.
 /// `ledgers_until_expiry` (when known) drives archival-risk notes and, once
-/// the entry is already archived (negative or zero), applies the restore
-/// penalty to the breakdown.
+/// the entry is already archived (negative or zero), applies a one-time
+/// restore penalty — a batch shares a single archived entry's restore cost,
+/// so it is charged once per estimate rather than once per item, exactly
+/// like the base transaction fee.
 pub fn estimate_cost(
     usage: &ResourceUsage,
     operation: OperationKind,
@@ -184,6 +196,9 @@ pub fn estimate_cost(
     batch_size: u32,
     ledgers_until_expiry: Option<i64>,
 ) -> CostEstimate {
+    // Callers are expected to reject batch_size == 0 before reaching this
+    // point (the CLI does, in `commands::cost::estimate`); this clamp is only
+    // a defensive fallback for other callers, not the primary validation.
     let batch_size = batch_size.max(1);
     let multiplier = network_base_fee_multiplier(network);
 
@@ -204,13 +219,16 @@ pub fn estimate_cost(
 
     let base_fee = (BASE_TRANSACTION_FEE_STROOPS as f64 * multiplier).round() as u64;
 
+    // Per-item resource fees scale with batch_size; archival_fee and base_fee
+    // are one-time charges shared across the whole batch (a batch of N items
+    // still only touches one archived entry and submits one transaction).
     let per_item = CostBreakdown {
         cpu_fee_stroops: cpu_fee,
         mem_fee_stroops: mem_fee,
         read_fee_stroops: read_fee,
         write_fee_stroops: write_fee,
         event_fee_stroops: event_fee,
-        archival_fee_stroops: archival_fee,
+        archival_fee_stroops: 0,
         base_fee_stroops: 0,
     };
 
@@ -220,12 +238,13 @@ pub fn estimate_cost(
         read_fee_stroops: per_item.read_fee_stroops * batch_size as u64,
         write_fee_stroops: per_item.write_fee_stroops * batch_size as u64,
         event_fee_stroops: per_item.event_fee_stroops * batch_size as u64,
-        archival_fee_stroops: per_item.archival_fee_stroops * batch_size as u64,
+        archival_fee_stroops: archival_fee,
         base_fee_stroops: base_fee,
     };
 
     let total = breakdown.total_stroops();
-    let per_item_fee = per_item.total_stroops() + (base_fee / batch_size as u64);
+    let one_time_fee = base_fee + archival_fee;
+    let per_item_fee = per_item.total_stroops() + round_div(one_time_fee, batch_size as u64);
 
     let notes = build_notes(
         &breakdown,
@@ -432,6 +451,37 @@ mod tests {
             .notes
             .iter()
             .any(|n| n.contains("amortizes the base transaction fee")));
+    }
+
+    #[test]
+    fn archival_penalty_is_charged_once_not_per_batch_item() {
+        let u = usage(1_000, 100, 1, 0, 50, 0, 0, 0);
+        let single = estimate_cost(&u, OperationKind::Batch, "testnet", 1, Some(-1));
+        let batched = estimate_cost(&u, OperationKind::Batch, "testnet", 100, Some(-1));
+
+        assert_eq!(
+            single.breakdown.archival_fee_stroops,
+            ARCHIVAL_RESTORE_PENALTY_STROOPS
+        );
+        assert_eq!(
+            batched.breakdown.archival_fee_stroops, ARCHIVAL_RESTORE_PENALTY_STROOPS,
+            "a batch shares one archived entry's restore cost; it must not scale with batch_size"
+        );
+    }
+
+    #[test]
+    fn per_item_fee_reconciles_closely_with_total_for_uneven_batch_sizes() {
+        let u = usage(20_000, 512, 1, 1, 64, 64, 1, 32);
+        let est = estimate_cost(&u, OperationKind::Batch, "mainnet", 7, None);
+        let reconstructed = est.per_item_fee_stroops * 7;
+        let diff = (reconstructed as i64 - est.total_fee_stroops as i64).abs();
+        // Rounding (not truncating) the one-time-fee split keeps the
+        // reconstructed total within half a stroop-per-item of the true total.
+        assert!(
+            diff <= 3,
+            "per-item fee drifted too far from total: {}",
+            diff
+        );
     }
 
     #[test]

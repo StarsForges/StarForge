@@ -2,18 +2,23 @@
 //! regression-threshold checks across runs.
 //!
 //! Snapshots are stored as one pretty-printed JSON file per estimate under
-//! `<data_dir>/cost_history/<label>/<timestamp>.json`, mirroring the
-//! versioned-report convention used by `utils::upgrade_analyzer` rather than
-//! the append-only jsonl log convention used by `utils::telemetry` — each
-//! estimate is a standalone, independently loadable artifact rather than a
-//! log line. File names are RFC3339-ish sortable timestamps so directory
-//! listing order is chronological without parsing file contents.
+//! `<data_dir>/cost_history/<sanitized-label>-<label-fingerprint>/<timestamp>-<seq>.json`,
+//! mirroring the versioned-report convention used by `utils::upgrade_analyzer`
+//! rather than the append-only jsonl log convention used by
+//! `utils::telemetry` — each estimate is a standalone, independently
+//! loadable artifact rather than a log line. The label fingerprint keeps
+//! labels that collide after sanitization (e.g. `"svc:v1"` and `"svc/v1"`)
+//! from merging into the same directory. File names are RFC3339-ish sortable
+//! timestamps with a zero-padded sequence suffix, so directory listing order
+//! is chronological without parsing file contents even when two saves for
+//! the same label land in the same millisecond.
 
 use crate::commands::cost::model::CostEstimate;
 use crate::utils::config;
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -60,8 +65,20 @@ fn sanitize_label(label: &str) -> String {
     }
 }
 
+/// First 8 hex characters of the label's SHA-256, used to disambiguate labels
+/// that collide after sanitization (e.g. `"svc:v1"` and `"svc/v1"` both
+/// sanitize to `"svc_v1"`). Deterministic, so the same raw label always maps
+/// to the same directory.
+fn label_fingerprint(label: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(label.as_bytes());
+    let digest = hasher.finalize();
+    hex::encode(&digest[..4])
+}
+
 fn history_dir(base: &Path, label: &str) -> PathBuf {
-    base.join("cost_history").join(sanitize_label(label))
+    let dir_name = format!("{}-{}", sanitize_label(label), label_fingerprint(label));
+    base.join("cost_history").join(dir_name)
 }
 
 #[cfg(unix)]
@@ -80,8 +97,31 @@ fn restrict_permissions(_path: &Path) -> Result<()> {
     Ok(())
 }
 
-fn snapshot_filename(timestamp: DateTime<Utc>) -> String {
-    format!("{}.json", timestamp.format("%Y%m%dT%H%M%S%3fZ"))
+/// Snapshot filenames always carry a zero-padded sequence suffix (`-000`,
+/// `-001`, ...) rather than only a millisecond timestamp, so two saves for
+/// the same label landing in the same millisecond get distinct, still
+/// chronologically-sortable filenames instead of one silently overwriting
+/// the other. Fixed-width padding keeps lexicographic order equal to
+/// numeric/timestamp order in both dimensions.
+fn snapshot_filename(timestamp: DateTime<Utc>, seq: u32) -> String {
+    format!("{}-{:03}.json", timestamp.format("%Y%m%dT%H%M%S%3fZ"), seq)
+}
+
+fn unique_snapshot_path(dir: &Path, timestamp: DateTime<Utc>) -> PathBuf {
+    for seq in 0..1000u32 {
+        let candidate = dir.join(snapshot_filename(timestamp, seq));
+        if !candidate.exists() {
+            return candidate;
+        }
+    }
+    // Effectively unreachable (1000 saves for one label within one
+    // millisecond), but fall back to a PID-qualified name rather than ever
+    // silently overwriting a snapshot.
+    dir.join(format!(
+        "{}-pid{}.json",
+        timestamp.format("%Y%m%dT%H%M%S%3fZ"),
+        std::process::id()
+    ))
 }
 
 fn save_snapshot_in(base: &Path, label: &str, estimate: &CostEstimate) -> Result<PathBuf> {
@@ -99,7 +139,7 @@ fn save_snapshot_in(base: &Path, label: &str, estimate: &CostEstimate) -> Result
         estimate,
     };
 
-    let path = dir.join(snapshot_filename(timestamp));
+    let path = unique_snapshot_path(&dir, timestamp);
     let json = serde_json::to_string_pretty(&snapshot).context("Failed to serialize snapshot")?;
     fs::write(&path, json)
         .with_context(|| format!("Failed to write snapshot to {}", path.display()))?;
@@ -284,6 +324,42 @@ mod tests {
         let path = save_snapshot_in(dir.path(), "perm-check", &est).unwrap();
         let mode = fs::metadata(&path).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode, 0o600);
+    }
+
+    #[test]
+    fn labels_colliding_after_sanitization_stay_isolated() {
+        let dir = tempdir().unwrap();
+        save_snapshot_in(dir.path(), "svc:v1", &sample_estimate(10_000)).unwrap();
+        save_snapshot_in(dir.path(), "svc/v1", &sample_estimate(999_000)).unwrap();
+
+        let a = load_all_snapshots_in(dir.path(), "svc:v1").unwrap();
+        let b = load_all_snapshots_in(dir.path(), "svc/v1").unwrap();
+        assert_eq!(a.len(), 1);
+        assert_eq!(b.len(), 1);
+        assert_eq!(
+            a[0].estimate.total_fee_stroops,
+            sample_estimate(10_000).total_fee_stroops
+        );
+        assert_eq!(
+            b[0].estimate.total_fee_stroops,
+            sample_estimate(999_000).total_fee_stroops
+        );
+    }
+
+    #[test]
+    fn same_millisecond_saves_do_not_overwrite_each_other() {
+        let dir = tempdir().unwrap();
+        // No sleep between these: forces both saves into (very likely) the
+        // same millisecond so the sequence-suffix fallback is exercised.
+        for cpu in 1..=5u64 {
+            save_snapshot_in(dir.path(), "rapid", &sample_estimate(cpu)).unwrap();
+        }
+        let snapshots = load_all_snapshots_in(dir.path(), "rapid").unwrap();
+        assert_eq!(
+            snapshots.len(),
+            5,
+            "no save should silently overwrite another"
+        );
     }
 
     #[test]
