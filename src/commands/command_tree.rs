@@ -260,6 +260,20 @@ const COMMANDS: &[CmdEntry] = &[
         ],
     },
     CmdEntry {
+        name: "cost",
+        about: "AI-assisted cost estimation and economic analysis for Soroban operations",
+        subs: &[
+            ("estimate", "Estimate the fee/resource cost of a single operation"),
+            ("compare", "Compare two cost estimates"),
+            ("budget", "Check the latest estimate for a label against a fee budget"),
+            ("export", "Export historical estimates for a label as JSON or CSV"),
+            (
+                "check-regression",
+                "Fail if the latest estimate regressed beyond a threshold",
+            ),
+        ],
+    },
+    CmdEntry {
         name: "commands",
         about: "Display the full command tree (this command)",
         subs: &[],

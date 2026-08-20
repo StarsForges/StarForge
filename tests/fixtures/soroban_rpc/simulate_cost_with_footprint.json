@@ -1,0 +1,35 @@
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "latestLedger": 987654,
+    "cost": {
+      "cpuInsns": 480000,
+      "memBytes": 8192
+    },
+    "transactionData": {
+      "resources": {
+        "footprint": {
+          "readOnly": [
+            { "key": "AAAAAQ==", "sizeHintBytes": 64 }
+          ],
+          "readWrite": [
+            { "key": "AAAAAg==", "sizeHintBytes": 256 },
+            { "key": "AAAAAw==", "sizeHintBytes": 128 }
+          ]
+        }
+      }
+    },
+    "results": [
+      {
+        "xdr": "AAAABQ==",
+        "auth": []
+      }
+    ],
+    "events": [
+      "AAAAEAAAAAEAAAABAAAADgAAAAh0ZXN0X2tleQAAAA4AAAAJZ29vZF92YWw=",
+      "AAAAEAAAAAEAAAABAAAADgAAAAh0ZXN0X2tleTIAAAA4AAAACWJ1ZF92YWwy"
+    ],
+    "returnValue": "success_value"
+  }
+}
