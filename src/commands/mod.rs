@@ -3,6 +3,7 @@ pub mod batch;
 pub mod benchmark;
 pub mod command_tree;
 pub mod completions;
+pub mod compliance;
 pub mod config;
 pub mod contract;
 pub mod deploy;

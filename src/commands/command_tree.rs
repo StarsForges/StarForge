@@ -245,6 +245,21 @@ const COMMANDS: &[CmdEntry] = &[
         subs: &[],
     },
     CmdEntry {
+        name: "compliance",
+        about: "Regulatory compliance checking for Soroban contracts (profiles, checks, evidence, waivers)",
+        subs: &[
+            ("profile init", "Initialize a local compliance profile with the given jurisdictions"),
+            ("profile show", "Show the current compliance profile and available jurisdictions"),
+            ("check", "Run a deterministic compliance check against a contract artifact"),
+            ("evidence record", "Record supporting evidence for a control"),
+            ("evidence list", "List recorded evidence"),
+            ("waiver add", "Add a time-boxed waiver for a control"),
+            ("waiver list", "List waivers on the current profile"),
+            ("waiver revoke", "Revoke a waiver by ID"),
+            ("report export", "Run a check and export the resulting report to a file"),
+        ],
+    },
+    CmdEntry {
         name: "commands",
         about: "Display the full command tree (this command)",
         subs: &[],

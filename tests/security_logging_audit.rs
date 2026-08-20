@@ -1,6 +1,10 @@
 use std::fs;
 
-const FILES_TO_AUDIT: &[&str] = &["src/commands/wallet.rs", "src/commands/deploy.rs"];
+const FILES_TO_AUDIT: &[&str] = &[
+    "src/commands/wallet.rs",
+    "src/commands/deploy.rs",
+    "src/commands/compliance.rs",
+];
 
 #[test]
 fn no_sensitive_patterns_are_emitted_at_info_level() {

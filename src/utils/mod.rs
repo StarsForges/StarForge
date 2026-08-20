@@ -1,6 +1,7 @@
 pub mod ai_telemetry;
 pub mod bindings;
 pub mod ceremony;
+pub mod compliance;
 pub mod config;
 pub mod confirmation;
 pub mod crypto;
