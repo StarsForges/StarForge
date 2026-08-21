@@ -20,6 +20,18 @@ ignore = [
     "RUSTSEC-2026-0104",
     # number_prefix unmaintained; pulled in via indicatif. No safe upgrade.
     "RUSTSEC-2025-0119",
+    # instant unmaintained; pulled in via backoff (async-openai's retry logic). No safe upgrade.
+    "RUSTSEC-2024-0384",
+    # paste unmaintained; pulled in via wasmi_core. No safe upgrade.
+    "RUSTSEC-2024-0436",
+    # rustls-pemfile unmaintained; pulled in via reqwest/async-openai. No safe upgrade.
+    "RUSTSEC-2025-0134",
+    # h2 0.3.27 (hyper 0.14, via reqwest 0.11/async-openai) has no patched 0.3.x
+    # release; the fix only landed in 0.4.16+, which requires reqwest's hyper-1.x
+    # line. The separate h2 0.4.x instance in this tree is already updated.
+    "RUSTSEC-2026-0258",
+    # backoff unmaintained; pulled in via async-openai's retry logic. No safe upgrade.
+    "RUSTSEC-2025-0012",
 ]
 
 [licenses]

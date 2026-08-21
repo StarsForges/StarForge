@@ -6,6 +6,7 @@ pub mod completions;
 pub mod compliance;
 pub mod config;
 pub mod contract;
+pub mod cost;
 pub mod deploy;
 pub mod diagnostics;
 pub mod gas;
