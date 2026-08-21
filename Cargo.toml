@@ -70,6 +70,7 @@ hardware-wallet = ["dep:hidapi", "dep:trezor-client"]
 criterion = "0.5.1"
 tempfile = "3.8"
 mockito = "1.2"
+stellar-xdr = { version = "22", features = ["std"] }
 
 [[bench]]
 name = "benchmarks"

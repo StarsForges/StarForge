@@ -274,6 +274,17 @@ const COMMANDS: &[CmdEntry] = &[
         ],
     },
     CmdEntry {
+        name: "docs",
+        about: "Automated documentation generation and knowledge base for Soroban contracts",
+        subs: &[
+            ("generate", "Generate Markdown/JSON docs from a compiled contract"),
+            ("validate", "Enforce quality and integrity gates on kb.json (CI-safe)"),
+            ("diff", "Structurally compare two knowledge bases"),
+            ("stale", "Detect documentation that no longer matches a contract"),
+            ("publish-preview", "Render a deterministic preview bundle for review"),
+        ],
+    },
+    CmdEntry {
         name: "commands",
         about: "Display the full command tree (this command)",
         subs: &[],

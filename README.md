@@ -44,6 +44,17 @@ Validate, size-check, and deploy compiled Soroban `.wasm` files to Testnet or Ma
 
 The local hash shown by `starforge deploy` is intended to match the value reported by `stellar contract inspect --wasm <file>` for the same bytecode.
 
+### Documentation Generation
+Turn compiled Soroban `.wasm` artifacts into deterministic, CI-friendly documentation and a machine-readable knowledge base (`kb.json`). Signatures come from the contract's `contractspecv0` XDR metadata, every entry gets a stable ID for structural diffing, secrets are redacted by default, and quality gates (`validate`, `stale`, `diff --fail-on-breaking`) exit non-zero so docs can't silently rot. Optional AI explanations are opt-in and degrade to deterministic templates offline.
+
+```bash
+starforge docs generate my_contract.wasm --project-name my_contract
+starforge docs validate docs/kb.json --min-coverage 80
+starforge docs diff old/kb.json new/kb.json --fail-on-breaking
+```
+
+See [docs/docgen.md](docs/docgen.md) for the full guide.
+
 ---
 
 ## Installation

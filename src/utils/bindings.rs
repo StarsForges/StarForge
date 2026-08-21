@@ -59,7 +59,7 @@ pub(crate) fn read_spec_entries(wasm: &[u8]) -> Result<Vec<ScSpecEntry>> {
     Ok(entries)
 }
 
-fn contract_spec_section(wasm: &[u8]) -> Result<&[u8]> {
+pub(crate) fn contract_spec_section(wasm: &[u8]) -> Result<&[u8]> {
     if wasm.len() < 8 || &wasm[0..4] != b"\0asm" {
         anyhow::bail!("Input is not a valid WASM binary");
     }
