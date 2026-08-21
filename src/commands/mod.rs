@@ -9,6 +9,7 @@ pub mod contract;
 pub mod cost;
 pub mod deploy;
 pub mod diagnostics;
+pub mod docs;
 pub mod gas;
 pub mod info;
 pub mod inspect;

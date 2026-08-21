@@ -5,6 +5,7 @@ pub mod compliance;
 pub mod config;
 pub mod confirmation;
 pub mod crypto;
+pub mod docgen;
 pub mod hardware_wallet;
 pub mod horizon;
 pub mod logging;
