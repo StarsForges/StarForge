@@ -127,7 +127,10 @@ fn profile_run_json_output_is_valid() {
     let stdout = String::from_utf8_lossy(&out.stdout);
     let parsed: serde_json::Value =
         serde_json::from_str(&stdout).expect("profile run JSON output is valid JSON");
-    assert!(parsed.get("metrics").is_some(), "JSON should contain 'metrics'");
+    assert!(
+        parsed.get("metrics").is_some(),
+        "JSON should contain 'metrics'"
+    );
     assert!(
         parsed.get("optimization_report").is_some(),
         "JSON should contain 'optimization_report'"
@@ -204,7 +207,10 @@ fn profile_run_with_no_params_produces_info_recommendation() {
     let has_no_metrics_rec = recs
         .iter()
         .any(|r| r["rule_id"].as_str() == Some("no-metrics"));
-    assert!(has_no_metrics_rec, "empty profile should have no-metrics recommendation");
+    assert!(
+        has_no_metrics_rec,
+        "empty profile should have no-metrics recommendation"
+    );
 }
 
 #[test]
@@ -227,7 +233,14 @@ fn profile_run_save_creates_baseline() {
 
     // List should find it
     let list_out = starforge(home.path())
-        .args(["profile", "list", "--label", "save-test", "--format", "json"])
+        .args([
+            "profile",
+            "list",
+            "--label",
+            "save-test",
+            "--format",
+            "json",
+        ])
         .output()
         .expect("spawn profile list");
     assert_success(&list_out, "profile list after save");
@@ -335,7 +348,9 @@ fn profile_compare_two_baselines_exits_zero() {
     }
 
     let out = starforge(home.path())
-        .args(["profile", "compare", "--label", "cmp-test", "--format", "json"])
+        .args([
+            "profile", "compare", "--label", "cmp-test", "--format", "json",
+        ])
         .output()
         .expect("spawn profile compare");
     assert_success(&out, "profile compare");
@@ -421,7 +436,10 @@ fn profile_budget_json_reports_violations() {
     let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
     assert_eq!(parsed["passed"], false);
     let violations = parsed["violations"].as_array().unwrap();
-    assert!(!violations.is_empty(), "violations array should be non-empty");
+    assert!(
+        !violations.is_empty(),
+        "violations array should be non-empty"
+    );
     assert!(
         violations[0].as_str().unwrap().contains("CPU"),
         "violation should mention CPU"
@@ -448,7 +466,14 @@ fn profile_export_json_produces_valid_output() {
         .expect("save baseline for export");
 
     let out = starforge(home.path())
-        .args(["profile", "export", "--label", "export-test", "--format", "json"])
+        .args([
+            "profile",
+            "export",
+            "--label",
+            "export-test",
+            "--format",
+            "json",
+        ])
         .output()
         .expect("spawn profile export json");
     assert_success(&out, "profile export json");
@@ -493,7 +518,10 @@ fn profile_export_csv_contains_header() {
         stdout.starts_with("timestamp,label"),
         "CSV should start with header"
     );
-    assert!(stdout.lines().count() >= 2, "CSV should have header + data row");
+    assert!(
+        stdout.lines().count() >= 2,
+        "CSV should have header + data row"
+    );
 }
 
 // ── Check-regression subcommand ───────────────────────────────────────────────
@@ -628,12 +656,7 @@ fn profile_flame_exits_zero() {
         .expect("save for flame");
 
     let out = starforge(home.path())
-        .args([
-            "profile",
-            "flame",
-            "--label",
-            "flame-subcommand-test",
-        ])
+        .args(["profile", "flame", "--label", "flame-subcommand-test"])
         .output()
         .expect("spawn profile flame");
     assert_success(&out, "profile flame");

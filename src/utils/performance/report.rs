@@ -33,11 +33,7 @@ pub struct BaselineComparison {
 // ── Human rendering ───────────────────────────────────────────────────────────
 
 /// Print a full profile run to stdout in human-readable format.
-pub fn print_profile_run(
-    output: &ProfileRunOutput,
-    show_flame: bool,
-    quiet: bool,
-) {
+pub fn print_profile_run(output: &ProfileRunOutput, show_flame: bool, quiet: bool) {
     let m = &output.metrics;
 
     if !quiet {
@@ -49,19 +45,23 @@ pub fn print_profile_run(
                 .underline()
         );
         println!("  {} {}", "Network:".dimmed(), m.network.cyan());
-        println!("  {} {}", "Timestamp:".dimmed(), m.timestamp.to_rfc3339().dimmed());
+        println!(
+            "  {} {}",
+            "Timestamp:".dimmed(),
+            m.timestamp.to_rfc3339().dimmed()
+        );
         println!();
     }
 
     // Resource metrics table
     println!("{}", "  Resource Usage".bright_white().bold());
     println!("  {}", "─".repeat(60).dimmed());
-    print_metric("CPU Instructions", m.cpu_insns, util_badge(m.cpu_utilization()));
     print_metric(
-        "Peak Memory",
-        m.mem_bytes,
-        util_badge(m.mem_utilization()),
+        "CPU Instructions",
+        m.cpu_insns,
+        util_badge(m.cpu_utilization()),
     );
+    print_metric("Peak Memory", m.mem_bytes, util_badge(m.mem_utilization()));
     print_metric_plain("Sim Fee (stroops)", &m.sim_fee_stroops.to_string());
     print_metric_plain(
         "Storage Reads",
@@ -86,10 +86,7 @@ pub fn print_profile_run(
     );
 
     if !m.simulation_errors.is_empty() {
-        println!(
-            "\n  {} Simulation errors:",
-            "✗".red().bold()
-        );
+        println!("\n  {} Simulation errors:", "✗".red().bold());
         for e in &m.simulation_errors {
             println!("    {}", e.red());
         }
@@ -135,11 +132,7 @@ fn print_metric(label: &str, value: u64, badge: ColoredString) {
 }
 
 fn print_metric_plain(label: &str, value: &str) {
-    println!(
-        "  {:<24} {}",
-        label.dimmed(),
-        value.bright_white()
-    );
+    println!("  {:<24} {}", label.dimmed(), value.bright_white());
 }
 
 fn util_badge(util: f64) -> ColoredString {
@@ -157,14 +150,14 @@ fn util_badge(util: f64) -> ColoredString {
 /// Print an optimization report section.
 pub fn print_optimization_report(report: &OptimizationReport) {
     let counts = &report.severity_counts;
-    println!(
-        "{}",
-        "  Optimization Recommendations".bright_white().bold()
-    );
+    println!("{}", "  Optimization Recommendations".bright_white().bold());
     println!("  {}", "─".repeat(60).dimmed());
 
     if report.recommendations.is_empty() {
-        println!("  {} No issues found — contract profile looks healthy.", "✓".green().bold());
+        println!(
+            "  {} No issues found — contract profile looks healthy.",
+            "✓".green().bold()
+        );
         return;
     }
 
@@ -180,12 +173,21 @@ pub fn print_optimization_report(report: &OptimizationReport) {
 
     for rec in &report.recommendations {
         let badge = severity_badge(&rec.severity);
-        println!("  {} {} [{}]", badge, rec.title.bright_white(), rec.category.as_str().dimmed());
+        println!(
+            "  {} {} [{}]",
+            badge,
+            rec.title.bright_white(),
+            rec.category.as_str().dimmed()
+        );
         println!("    {}", rec.rationale.dimmed());
         println!("    {} {}", "Before:".dimmed(), rec.before.yellow());
         println!("    {} {}", "After: ".dimmed(), rec.after.green());
         if !rec.estimated_savings.is_empty() && rec.estimated_savings != "N/A" {
-            println!("    {} {}", "Saves: ".dimmed(), rec.estimated_savings.cyan());
+            println!(
+                "    {} {}",
+                "Saves: ".dimmed(),
+                rec.estimated_savings.cyan()
+            );
         }
         println!();
     }

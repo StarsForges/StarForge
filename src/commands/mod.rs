@@ -1,6 +1,5 @@
 pub mod ai;
 pub mod batch;
-pub mod profile;
 pub mod benchmark;
 pub mod command_tree;
 pub mod completions;
@@ -22,6 +21,7 @@ pub mod network;
 pub mod new;
 pub mod node;
 pub mod plugin;
+pub mod profile;
 pub mod sep;
 pub mod shell;
 pub mod telemetry;

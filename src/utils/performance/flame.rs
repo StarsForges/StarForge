@@ -36,7 +36,12 @@ impl FlameSummary {
     /// Build a flame summary from a [`ProfileMetrics`] value.
     pub fn from_metrics(metrics: &ProfileMetrics) -> Self {
         let rows = build_rows(&metrics.hot_spots, metrics.cpu_insns);
-        let text = render_text(&metrics.contract_label, metrics.cpu_insns, metrics.mem_bytes, &rows);
+        let text = render_text(
+            &metrics.contract_label,
+            metrics.cpu_insns,
+            metrics.mem_bytes,
+            &rows,
+        );
         Self {
             contract_label: metrics.contract_label.clone(),
             total_cpu_insns: metrics.cpu_insns,
@@ -61,11 +66,7 @@ fn build_rows(hot_spots: &[HotSpot], total_cpu: u64) -> Vec<FlameRow> {
             };
             let filled = ((pct / 100.0) * BAR_WIDTH as f64).round() as usize;
             let filled = filled.min(BAR_WIDTH);
-            let bar = format!(
-                "{}{}",
-                "█".repeat(filled),
-                "░".repeat(BAR_WIDTH - filled)
-            );
+            let bar = format!("{}{}", "█".repeat(filled), "░".repeat(BAR_WIDTH - filled));
             FlameRow {
                 label: hs.label.clone(),
                 cpu_insns: hs.cpu_insns,
@@ -77,17 +78,9 @@ fn build_rows(hot_spots: &[HotSpot], total_cpu: u64) -> Vec<FlameRow> {
         .collect()
 }
 
-fn render_text(
-    label: &str,
-    total_cpu: u64,
-    total_mem: u64,
-    rows: &[FlameRow],
-) -> String {
+fn render_text(label: &str, total_cpu: u64, total_mem: u64, rows: &[FlameRow]) -> String {
     let mut out = String::new();
-    out.push_str(&format!(
-        "Flame Summary — {}\n",
-        label
-    ));
+    out.push_str(&format!("Flame Summary — {}\n", label));
     out.push_str(&format!(
         "Total CPU: {:>12} insns    Peak Mem: {:>10} bytes\n",
         total_cpu, total_mem
@@ -165,11 +158,7 @@ mod tests {
         let summary = FlameSummary::from_metrics(&m);
         for row in &summary.rows {
             // Count printable chars: each '█' and '░' is one logical char
-            let bar_char_count: usize = row
-                .bar
-                .chars()
-                .filter(|c| *c == '█' || *c == '░')
-                .count();
+            let bar_char_count: usize = row.bar.chars().filter(|c| *c == '█' || *c == '░').count();
             assert_eq!(bar_char_count, BAR_WIDTH);
         }
     }

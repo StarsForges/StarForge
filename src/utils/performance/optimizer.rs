@@ -147,10 +147,8 @@ static RULES: &[RuleFn] = &[
 
 /// Run all rules against `metrics` and return a populated [`OptimizationReport`].
 pub fn analyze(metrics: &ProfileMetrics) -> OptimizationReport {
-    let recommendations: Vec<Recommendation> = RULES
-        .iter()
-        .filter_map(|rule| rule(metrics))
-        .collect();
+    let recommendations: Vec<Recommendation> =
+        RULES.iter().filter_map(|rule| rule(metrics)).collect();
 
     let severity_counts = count_severities(&recommendations);
     let summary = build_deterministic_summary(metrics, &recommendations, &severity_counts);
@@ -234,12 +232,10 @@ fn rule_high_cpu_compute(m: &ProfileMetrics) -> Option<Recommendation> {
         rationale: format!(
             "This invocation consumed {} CPU instructions (>= {}M threshold). \
              High instruction counts increase fees and risk hitting the per-transaction budget.",
-            m.cpu_insns, thresholds::CPU_HIGH_INSNS / 1_000_000
+            m.cpu_insns,
+            thresholds::CPU_HIGH_INSNS / 1_000_000
         ),
-        before: format!(
-            "Current: {} CPU instructions",
-            m.cpu_insns
-        ),
+        before: format!("Current: {} CPU instructions", m.cpu_insns),
         after: "Cache intermediate results, avoid redundant iteration, and move pure \
                 computation off-chain where possible to reduce instruction count."
             .to_string(),
@@ -284,7 +280,11 @@ fn rule_high_memory(m: &ProfileMetrics) -> Option<Recommendation> {
              transaction failure under complex inputs.",
             m.mem_bytes / (1024 * 1024)
         ),
-        before: format!("Current: {} bytes ({:.1} MiB) peak memory", m.mem_bytes, m.mem_bytes as f64 / (1024.0 * 1024.0)),
+        before: format!(
+            "Current: {} bytes ({:.1} MiB) peak memory",
+            m.mem_bytes,
+            m.mem_bytes as f64 / (1024.0 * 1024.0)
+        ),
         after: "Stream large datasets instead of loading them fully into memory. \
                 Avoid storing temporary collections with unbounded growth."
             .to_string(),
@@ -304,7 +304,8 @@ fn rule_medium_memory(m: &ProfileMetrics) -> Option<Recommendation> {
         title: "Notable memory usage".to_string(),
         rationale: format!(
             "Peak memory usage is {} bytes ({:.1} MiB). Review allocation-heavy paths.",
-            m.mem_bytes, m.mem_bytes as f64 / (1024.0 * 1024.0)
+            m.mem_bytes,
+            m.mem_bytes as f64 / (1024.0 * 1024.0)
         ),
         before: format!("Current: {} bytes peak memory", m.mem_bytes),
         after: "Prefer stack allocation and reuse buffers where feasible.".to_string(),
@@ -358,12 +359,14 @@ fn rule_many_read_entries(m: &ProfileMetrics) -> Option<Recommendation> {
              overhead than fewer larger entries due to per-entry read fees.",
             m.storage.read_only_keys
         ),
-        before: format!("Current: {} read-only ledger accesses", m.storage.read_only_keys),
+        before: format!(
+            "Current: {} read-only ledger accesses",
+            m.storage.read_only_keys
+        ),
         after: "Group frequently co-accessed data under a shared key to reduce read count \
                 per invocation."
             .to_string(),
-        estimated_savings: "Each read entry removed saves ~1,000 stroops in read fees."
-            .to_string(),
+        estimated_savings: "Each read entry removed saves ~1,000 stroops in read fees.".to_string(),
     })
 }
 
@@ -384,9 +387,7 @@ fn rule_oversized_events(m: &ProfileMetrics) -> Option<Recommendation> {
         ),
         before: format!(
             "Current: {} events, {:.0} bytes average, {} bytes total",
-            m.events.event_count,
-            m.events.avg_event_bytes,
-            m.events.total_event_bytes
+            m.events.event_count, m.events.avg_event_bytes, m.events.total_event_bytes
         ),
         after: "Emit only identifiers (contract IDs, amounts, addresses) in events, not full \
                 data payloads. Consumers can fetch state separately via RPC."
@@ -457,8 +458,7 @@ fn rule_archived_entries(m: &ProfileMetrics) -> Option<Recommendation> {
         category: Category::ArchivalRisk,
         rule_id: "storage-archived-entries".to_string(),
         title: "Archived ledger entries detected — restore fee will be charged".to_string(),
-        rationale:
-            "One or more ledger entries referenced by this contract are already archived \
+        rationale: "One or more ledger entries referenced by this contract are already archived \
              (TTL expired). Restoring archived entries incurs a significant one-time \
              fee (≈50,000 stroops) and adds latency to the transaction."
             .to_string(),
@@ -468,8 +468,7 @@ fn rule_archived_entries(m: &ProfileMetrics) -> Option<Recommendation> {
                 expiry. Use `starforge cost estimate --ledgers-until-expiry` to monitor \
                 archival risk."
             .to_string(),
-        estimated_savings: "Avoids ~50,000 stroops restore penalty per archived entry."
-            .to_string(),
+        estimated_savings: "Avoids ~50,000 stroops restore penalty per archived entry.".to_string(),
     })
 }
 
@@ -495,9 +494,14 @@ fn rule_high_cpu_utilization(m: &ProfileMetrics) -> Option<Recommendation> {
             "At {:.1}% CPU utilization ({} of ~100M instructions), this contract is \
              close to the Soroban per-transaction CPU budget. Complex inputs could push \
              it over the limit, causing transaction failure.",
-            util * 100.0, m.cpu_insns
+            util * 100.0,
+            m.cpu_insns
         ),
-        before: format!("{} CPU instructions ({:.1}% of limit)", m.cpu_insns, util * 100.0),
+        before: format!(
+            "{} CPU instructions ({:.1}% of limit)",
+            m.cpu_insns,
+            util * 100.0
+        ),
         after: "Reduce algorithmic complexity, avoid O(n²) patterns, and move non-essential \
                 computation off-chain or to a separate invocation."
             .to_string(),

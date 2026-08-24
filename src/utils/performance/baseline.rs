@@ -41,7 +41,11 @@ fn sanitize_label(label: &str) -> String {
             }
         })
         .collect();
-    if s.is_empty() { "default".to_string() } else { s }
+    if s.is_empty() {
+        "default".to_string()
+    } else {
+        s
+    }
 }
 
 fn label_fingerprint(label: &str) -> String {
@@ -134,8 +138,12 @@ fn list_paths_in(base: &Path, label: &str) -> Result<Vec<PathBuf>> {
 fn load_snapshot(path: &Path) -> Result<BaselineSnapshot> {
     let contents = fs::read_to_string(path)
         .with_context(|| format!("Failed to read baseline {}", path.display()))?;
-    serde_json::from_str(&contents)
-        .with_context(|| format!("Failed to parse baseline {} (schema mismatch?)", path.display()))
+    serde_json::from_str(&contents).with_context(|| {
+        format!(
+            "Failed to parse baseline {} (schema mismatch?)",
+            path.display()
+        )
+    })
 }
 
 fn load_all_in(base: &Path, label: &str) -> Result<Vec<BaselineSnapshot>> {
@@ -149,8 +157,9 @@ fn load_all_in(base: &Path, label: &str) -> Result<Vec<BaselineSnapshot>> {
 fn export_in(base: &Path, label: &str, format: &str) -> Result<String> {
     let snapshots = load_all_in(base, label)?;
     match format {
-        "json" => serde_json::to_string_pretty(&snapshots)
-            .context("Failed to serialize baseline export"),
+        "json" => {
+            serde_json::to_string_pretty(&snapshots).context("Failed to serialize baseline export")
+        }
         "csv" => {
             let mut out = String::from(
                 "timestamp,label,contract_label,network,cpu_insns,mem_bytes,fee_stroops,\

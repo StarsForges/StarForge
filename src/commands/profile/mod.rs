@@ -12,7 +12,7 @@
 use crate::utils::performance::{
     baseline as bl, flame::FlameSummary, metrics::*, optimizer, report as rpt,
 };
-use crate::utils::{print as p};
+use crate::utils::print as p;
 use anyhow::{Context, Result};
 use clap::Subcommand;
 use colored::*;
@@ -487,10 +487,9 @@ async fn handle_run(
 
     // Validate: warn if completely empty
     if metrics.is_empty() {
-        metrics
-            .notes
-            .push("No resource data supplied. Use --simulation-file or manual parameters."
-                .to_string());
+        metrics.notes.push(
+            "No resource data supplied. Use --simulation-file or manual parameters.".to_string(),
+        );
     }
 
     // Run optimizer
@@ -504,7 +503,10 @@ async fn handle_run(
                 p::warn("OPENAI_API_KEY not set — skipping AI narrative.");
             }
             Err(e) => {
-                p::warn(&format!("AI narrative failed (using deterministic output): {}", e));
+                p::warn(&format!(
+                    "AI narrative failed (using deterministic output): {}",
+                    e
+                ));
             }
         }
     }
@@ -559,8 +561,7 @@ async fn handle_run(
         _ => {
             rpt::print_profile_run(&run_output, show_flame, false);
             return write_if_requested(
-                &serde_json::to_string_pretty(&run_output)
-                    .unwrap_or_default(),
+                &serde_json::to_string_pretty(&run_output).unwrap_or_default(),
                 output_path,
                 "profile run",
             );
@@ -603,8 +604,8 @@ fn handle_compare(
             ProfileMetrics::from_rpc_envelope(&v, label, "testnet")?
         } else {
             // Assume it's a BaselineSnapshot
-            let snap: bl::BaselineSnapshot =
-                serde_json::from_value(v).context("Failed to parse candidate as baseline snapshot")?;
+            let snap: bl::BaselineSnapshot = serde_json::from_value(v)
+                .context("Failed to parse candidate as baseline snapshot")?;
             snap.metrics
         }
     } else {
@@ -714,11 +715,7 @@ fn handle_budget(
     Ok(())
 }
 
-fn handle_export(
-    label: &str,
-    format: &str,
-    output_path: Option<&std::path::Path>,
-) -> Result<()> {
+fn handle_export(label: &str, format: &str, output_path: Option<&std::path::Path>) -> Result<()> {
     let content = bl::export_baselines(label, format)
         .with_context(|| format!("Failed to export baselines for label '{}'", label))?;
     write_or_print(&content, output_path, "export")
@@ -790,11 +787,7 @@ fn handle_check_regression(label: &str, threshold: f64, format: &str) -> Result<
     Ok(())
 }
 
-fn handle_flame(
-    label: &str,
-    baseline_file: Option<&std::path::Path>,
-    format: &str,
-) -> Result<()> {
+fn handle_flame(label: &str, baseline_file: Option<&std::path::Path>, format: &str) -> Result<()> {
     let metrics = if let Some(path) = baseline_file {
         let snap = bl::load_baseline_from_file(path)?;
         snap.metrics
@@ -814,7 +807,8 @@ fn handle_flame(
         "json" => {
             println!(
                 "{}",
-                serde_json::to_string_pretty(&summary).context("Failed to serialize flame summary")?
+                serde_json::to_string_pretty(&summary)
+                    .context("Failed to serialize flame summary")?
             );
         }
         _ => {
@@ -852,10 +846,7 @@ fn handle_list(label: Option<&str>, format: &str) -> Result<()> {
                 );
             }
             _ => {
-                println!(
-                    "\n{}",
-                    "  Saved Profile Labels".bright_white().bold()
-                );
+                println!("\n{}", "  Saved Profile Labels".bright_white().bold());
                 println!("  {}", "─".repeat(40).dimmed());
                 if labels.is_empty() {
                     println!("  (no profiles saved yet)");
@@ -932,21 +923,13 @@ fn build_manual_metrics(
     };
 
     // Re-derive hot spots from the actual values using the parsed storage profile
-    m.hot_spots = crate::utils::performance::metrics::derive_hot_spots_pub(
-        cpu,
-        mem,
-        &m.storage,
-        &m.events,
-    );
+    m.hot_spots =
+        crate::utils::performance::metrics::derive_hot_spots_pub(cpu, mem, &m.storage, &m.events);
 
     m
 }
 
-fn write_or_print(
-    content: &str,
-    output_path: Option<&std::path::Path>,
-    label: &str,
-) -> Result<()> {
+fn write_or_print(content: &str, output_path: Option<&std::path::Path>, label: &str) -> Result<()> {
     if let Some(path) = output_path {
         fs::write(path, content)
             .with_context(|| format!("Failed to write {} output to {}", label, path.display()))?;

@@ -140,11 +140,7 @@ impl ProfileMetrics {
     }
 
     /// Parses the unwrapped `result` portion of a Soroban RPC simulation response.
-    pub fn from_result_value(
-        result: &serde_json::Value,
-        label: &str,
-        network: &str,
-    ) -> Self {
+    pub fn from_result_value(result: &serde_json::Value, label: &str, network: &str) -> Self {
         let cpu_insns = result
             .pointer("/cost/cpuInsns")
             .and_then(|v| v.as_u64())
@@ -305,11 +301,7 @@ fn derive_hot_spots(
         0.0
     };
     let event_cpu_fraction = if events.event_count > 0 { 0.05 } else { 0.0 };
-    let remaining = (1.0
-        - cpu_base_fraction
-        - storage_cpu_fraction
-        - event_cpu_fraction)
-        .max(0.0);
+    let remaining = (1.0 - cpu_base_fraction - storage_cpu_fraction - event_cpu_fraction).max(0.0);
 
     let mut spots = Vec::new();
 
@@ -404,10 +396,10 @@ impl ProfileDelta {
         let mem_pct = pct_change(baseline.mem_bytes, candidate.mem_bytes);
         let fee_delta = candidate.sim_fee_stroops as i64 - baseline.sim_fee_stroops as i64;
         let fee_pct = pct_change(baseline.sim_fee_stroops, candidate.sim_fee_stroops);
-        let read_delta = candidate.storage.read_only_keys as i32
-            - baseline.storage.read_only_keys as i32;
-        let write_delta = candidate.storage.read_write_keys as i32
-            - baseline.storage.read_write_keys as i32;
+        let read_delta =
+            candidate.storage.read_only_keys as i32 - baseline.storage.read_only_keys as i32;
+        let write_delta =
+            candidate.storage.read_write_keys as i32 - baseline.storage.read_write_keys as i32;
         let ev_count_delta =
             candidate.events.event_count as i32 - baseline.events.event_count as i32;
         let ev_bytes_delta =
@@ -602,9 +594,7 @@ mod tests {
             "id": 1,
             "error": { "code": -32600, "message": "boom" }
         });
-        assert!(
-            ProfileMetrics::from_rpc_envelope(&envelope, "x", "testnet").is_err()
-        );
+        assert!(ProfileMetrics::from_rpc_envelope(&envelope, "x", "testnet").is_err());
     }
 
     #[test]
