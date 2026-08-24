@@ -1,4 +1,5 @@
 pub mod ai_telemetry;
+pub mod performance;
 pub mod bindings;
 pub mod ceremony;
 pub mod compliance;

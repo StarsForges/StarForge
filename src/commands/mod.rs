@@ -1,5 +1,6 @@
 pub mod ai;
 pub mod batch;
+pub mod profile;
 pub mod benchmark;
 pub mod command_tree;
 pub mod completions;
