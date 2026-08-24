@@ -1,3 +1,4 @@
+pub mod assistant;
 pub mod impact;
 mod security_training;
 mod telemetry;
@@ -26,8 +27,16 @@ pub struct AiArgs {
     command: AiCommands,
 }
 
+impl AiArgs {
+    pub fn is_machine_readable(&self) -> bool {
+        matches!(&self.command, AiCommands::Assistant(args) if args.is_json())
+    }
+}
+
 #[derive(Subcommand)]
 enum AiCommands {
+    /// Context-aware project assistance with privacy controls and offline fallback
+    Assistant(assistant::AssistantArgs),
     /// Generate Soroban contract code from natural language description
     Generate {
         /// Natural language description of the contract
@@ -128,6 +137,7 @@ enum AiCommands {
 pub async fn handle(args: AiArgs) -> Result<()> {
     // These subcommands are fully local and must work without an API key.
     match args.command {
+        AiCommands::Assistant(command) => return assistant::handle(command).await,
         AiCommands::Telemetry(cmd) => return telemetry::handle(cmd),
         AiCommands::SecurityTraining(cmd) => return security_training::handle(cmd),
         AiCommands::Impact {
@@ -181,7 +191,10 @@ pub async fn handle(args: AiArgs) -> Result<()> {
             file,
             error_type,
         } => explain_error(&client, message, file, error_type).await,
-        AiCommands::Telemetry(_) | AiCommands::SecurityTraining(_) | AiCommands::Impact { .. } => {
+        AiCommands::Assistant(_)
+        | AiCommands::Telemetry(_)
+        | AiCommands::SecurityTraining(_)
+        | AiCommands::Impact { .. } => {
             unreachable!()
         }
     }

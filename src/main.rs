@@ -166,7 +166,7 @@ fn main() {
         &cli.command,
         Commands::Upgrade(commands::upgrade::UpgradeCommands::Analyze(args))
             if args.format == "json"
-    );
+    ) || matches!(&cli.command, Commands::Ai(args) if args.is_machine_readable());
 
     // Initialise structured logging before anything else runs.
     let log_cfg =
