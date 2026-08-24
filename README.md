@@ -55,6 +55,23 @@ starforge docs diff old/kb.json new/kb.json --fail-on-breaking
 
 See [docs/docgen.md](docs/docgen.md) for the full guide.
 
+### Context-aware Soroban assistant
+
+Index the current workspace and use it for deterministic or provider-backed
+Soroban explanation, diagnosis, suggestions, scaffold planning, and security
+review. Context paths remain relative, common secrets are redacted before
+persistence or transmission, prompts can be previewed, and provider failures
+fall back to offline guidance.
+
+```bash
+starforge ai assistant index --root .
+starforge ai assistant review "check authorization and storage TTL" --offline
+starforge ai assistant diagnose "simulation failed" --preview --format json
+```
+
+See [docs/context-aware-assistant.md](docs/context-aware-assistant.md) for the
+workflow, privacy, configuration, telemetry, and JSON v1 contracts.
+
 ---
 
 ## Installation
