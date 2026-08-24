@@ -135,6 +135,10 @@ enum Commands {
     #[command(subcommand)]
     Docs(commands::docs::DocsCommands),
 
+    /// AI-assisted performance profiling and optimization for Soroban contracts
+    #[command(subcommand)]
+    Profile(commands::profile::ProfileCommands),
+
     /// Execute an installed plugin command (e.g. `starforge defi ...`)
     #[command(external_subcommand)]
     External(Vec<String>),
@@ -223,6 +227,7 @@ fn main() {
         Commands::Compliance(_) => "compliance",
         Commands::Cost(_) => "cost",
         Commands::Docs(_) => "docs",
+        Commands::Profile(_) => "profile",
         Commands::External(_) => "external",
     }
     .to_string();
@@ -262,6 +267,9 @@ fn main() {
             .context("Failed to create async runtime")
             .and_then(|rt| rt.block_on(commands::cost::handle(cmd))),
         Commands::Docs(cmd) => commands::docs::handle(cmd),
+        Commands::Profile(cmd) => tokio::runtime::Runtime::new()
+            .context("Failed to create async runtime")
+            .and_then(|rt| rt.block_on(commands::profile::handle(cmd))),
         Commands::External(args) => handle_external_plugin(args),
     };
     let duration = start.elapsed();

@@ -21,6 +21,7 @@ pub mod network;
 pub mod new;
 pub mod node;
 pub mod plugin;
+pub mod profile;
 pub mod sep;
 pub mod shell;
 pub mod telemetry;
