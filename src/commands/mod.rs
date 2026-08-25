@@ -1,4 +1,5 @@
 pub mod ai;
+pub mod anomaly;
 pub mod batch;
 pub mod benchmark;
 pub mod command_tree;

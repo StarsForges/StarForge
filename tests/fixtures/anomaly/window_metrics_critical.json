@@ -1,0 +1,21 @@
+{
+  "window_start": "2024-01-01T00:00:00Z",
+  "window_end": "2024-01-01T00:01:00Z",
+  "event_count": 50000,
+  "unique_callers": [
+    "GNEWCALLER0000000000000000000000000000000000000000000001",
+    "GNEWCALLER0000000000000000000000000000000000000000000002",
+    "GNEWCALLER0000000000000000000000000000000000000000000003"
+  ],
+  "success_count": 20000,
+  "error_count": 30000,
+  "avg_fee_stroops": 5000000.0,
+  "max_fee_stroops": 9000000,
+  "max_cpu_insns": 900000000,
+  "avg_cpu_insns": 850000000.0,
+  "max_payload_bytes": 200000,
+  "suspicious_payload_hits": 25,
+  "suspicious_patterns": ["oversized_payload", "suspicious_substring:backdoor"],
+  "rpc_reachable": false,
+  "rpc_latency_ms": null
+}

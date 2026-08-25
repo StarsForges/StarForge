@@ -1,0 +1,17 @@
+{
+  "window_start": "2024-01-01T00:00:00Z",
+  "window_end": "2024-01-01T00:01:00Z",
+  "event_count": 12,
+  "unique_callers": ["GABCDEFGHIJKLMNOPQRSTUVWXYZ234567ABCDEFGHIJKLMNOPQRSTUVWX"],
+  "success_count": 12,
+  "error_count": 0,
+  "avg_fee_stroops": 100.0,
+  "max_fee_stroops": 150,
+  "max_cpu_insns": 500000,
+  "avg_cpu_insns": 400000.0,
+  "max_payload_bytes": 128,
+  "suspicious_payload_hits": 0,
+  "suspicious_patterns": [],
+  "rpc_reachable": true,
+  "rpc_latency_ms": 42
+}

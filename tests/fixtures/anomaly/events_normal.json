@@ -1,0 +1,23 @@
+[
+  {
+    "type": "contract",
+    "ledger": 1000001,
+    "id": "0000000001-0000000001",
+    "topic": ["GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],
+    "value": "transfer completed: 100 units"
+  },
+  {
+    "type": "contract",
+    "ledger": 1000002,
+    "id": "0000000002-0000000001",
+    "topic": ["GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],
+    "value": "transfer completed: 50 units"
+  },
+  {
+    "type": "contract",
+    "ledger": 1000003,
+    "id": "0000000003-0000000001",
+    "topic": ["GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"],
+    "value": "swap completed: 25 units"
+  }
+]
