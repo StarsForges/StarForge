@@ -1,0 +1,35 @@
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "latestLedger": 99999,
+    "cost": {
+      "cpuInsns": 500000,
+      "memBytes": 8192
+    },
+    "minResourceFee": 150,
+    "transactionData": {
+      "resources": {
+        "footprint": {
+          "readOnly": [
+            { "sizeHintBytes": 64 }
+          ],
+          "readWrite": [
+            { "sizeHintBytes": 128 }
+          ]
+        }
+      }
+    },
+    "events": [
+      "AAAA",
+      "BBBB"
+    ],
+    "results": [
+      {
+        "xdr": "AAAABQ==",
+        "auth": []
+      }
+    ],
+    "returnValue": "light_value"
+  }
+}
