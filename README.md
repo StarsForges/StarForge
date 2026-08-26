@@ -21,6 +21,13 @@ This project is actively maintained and open to community contributions.
 
 ## Features
 
+### Natural-language Soroban queries
+
+Plan and execute safe, read-only contract state, storage, event, ledger, and
+transaction questions with `starforge query`. Common intents work offline;
+AI-assisted planning is opt-in and falls back deterministically. See the
+[query guide](docs/natural-language-query.md).
+
 ### ?? Wallet Management
 Create and manage Stellar ed25519 keypairs locally. Generate cryptographically secure keys using proper Stellar strkey encoding (G... for public, S... for secret). Optionally encrypt keys at rest with AES-256-GCM. Fund testnet accounts via Friendbot, list all saved wallets, inspect live on-chain balances, and securely store keys in `~/.starforge/config.toml`.
 
