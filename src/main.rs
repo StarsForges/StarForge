@@ -139,6 +139,10 @@ enum Commands {
     #[command(subcommand)]
     Query(commands::query::QueryCommands),
 
+    /// AI-assisted performance profiling and optimization for Soroban contracts
+    #[command(subcommand)]
+    Profile(commands::profile::ProfileCommands),
+
     /// Execute an installed plugin command (e.g. `starforge defi ...`)
     #[command(external_subcommand)]
     External(Vec<String>),
@@ -170,7 +174,8 @@ fn main() {
         &cli.command,
         Commands::Upgrade(commands::upgrade::UpgradeCommands::Analyze(args))
             if args.format == "json"
-    ) || matches!(&cli.command, Commands::Query(cmd) if commands::query::is_machine_readable(cmd));
+    ) || matches!(&cli.command, Commands::Query(cmd) if commands::query::is_machine_readable(cmd))
+        || matches!(&cli.command, Commands::Ai(args) if args.is_machine_readable());
 
     // Initialise structured logging before anything else runs.
     let log_cfg =
@@ -228,6 +233,7 @@ fn main() {
         Commands::Cost(_) => "cost",
         Commands::Docs(_) => "docs",
         Commands::Query(_) => "query",
+        Commands::Profile(_) => "profile",
         Commands::External(_) => "external",
     }
     .to_string();
@@ -268,6 +274,9 @@ fn main() {
             .and_then(|rt| rt.block_on(commands::cost::handle(cmd))),
         Commands::Docs(cmd) => commands::docs::handle(cmd),
         Commands::Query(cmd) => commands::query::handle(cmd),
+        Commands::Profile(cmd) => tokio::runtime::Runtime::new()
+            .context("Failed to create async runtime")
+            .and_then(|rt| rt.block_on(commands::profile::handle(cmd))),
         Commands::External(args) => handle_external_plugin(args),
     };
     let duration = start.elapsed();
