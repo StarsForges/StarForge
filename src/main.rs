@@ -135,6 +135,10 @@ enum Commands {
     #[command(subcommand)]
     Docs(commands::docs::DocsCommands),
 
+    /// Enforceable transaction fee and Soroban resource budgets
+    #[command(subcommand)]
+    Budget(commands::budget::BudgetCommands),
+
     /// Ask natural-language questions about public Soroban contract data
     #[command(subcommand)]
     Query(commands::query::QueryCommands),
@@ -232,6 +236,7 @@ fn main() {
         Commands::Compliance(_) => "compliance",
         Commands::Cost(_) => "cost",
         Commands::Docs(_) => "docs",
+        Commands::Budget(_) => "budget",
         Commands::Query(_) => "query",
         Commands::Profile(_) => "profile",
         Commands::External(_) => "external",
@@ -273,6 +278,7 @@ fn main() {
             .context("Failed to create async runtime")
             .and_then(|rt| rt.block_on(commands::cost::handle(cmd))),
         Commands::Docs(cmd) => commands::docs::handle(cmd),
+        Commands::Budget(cmd) => commands::budget::handle(cmd),
         Commands::Query(cmd) => commands::query::handle(cmd),
         Commands::Profile(cmd) => tokio::runtime::Runtime::new()
             .context("Failed to create async runtime")

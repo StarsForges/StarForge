@@ -1,3 +1,4 @@
+use crate::commands::ai::impact::redactor::redact_text;
 use crate::utils::{config, confirmation, horizon, optimizer, print as p, soroban};
 use anyhow::Result;
 use clap::Args;
@@ -49,6 +50,10 @@ pub struct DeployArgs {
     /// Wallet name that sponsors fees via a fee-bump envelope when submission needs it
     #[arg(long)]
     pub fee_payer: Option<String>,
+    /// Explicit one-time reason to proceed despite a budget policy violation
+    /// (see `starforge budget`); recorded in the budget audit log
+    #[arg(long)]
+    pub budget_override_reason: Option<String>,
 }
 
 fn is_wasm_above_size_limit(wasm_size_kb: f64) -> bool {
@@ -398,6 +403,7 @@ pub fn handle(args: DeployArgs) -> Result<()> {
         );
     }
 
+    let mut deploy_simulation: Option<soroban::SimulationResult> = None;
     if args.simulate {
         p::info("Simulating deploy transaction via Soroban RPC...");
         match soroban::simulate_deploy_transaction(&wasm_hash, &args.network, wallet) {
@@ -413,12 +419,56 @@ pub fn handle(args: DeployArgs) -> Result<()> {
                 } else {
                     p::success("Simulation completed without reported RPC errors");
                 }
+                deploy_simulation = Some(simulation);
             }
             Err(error) => {
                 p::warn(&format!("Simulation failed: {}", error));
             }
         }
         p::separator();
+    }
+
+    // Pre-signing budget enforcement: only meaningfully checks Soroban
+    // resource metrics when --simulate ran (otherwise only the classic fee,
+    // which is unknown pre-build for a deploy, would be checkable — so a
+    // policy that only sets resource limits still gets enforced here even
+    // without --simulate, it will just see all-zero resource usage).
+    let usage = deploy_simulation
+        .as_ref()
+        .map(crate::commands::cost::adapter::normalize_from_simulation)
+        .unwrap_or_default();
+    let resource_fee_stroops = deploy_simulation.as_ref().map(|s| s.fee).unwrap_or(0);
+    // Redact before it reaches the audit log: an override reason is free
+    // text an operator types under time pressure, and could accidentally
+    // contain a secret (a pasted key, a local path). See `docs/budgets.md`.
+    let redacted_override_reason = args.budget_override_reason.as_deref().map(redact_text);
+    let budget_report =
+        crate::utils::budget::run_pre_signing_check(crate::utils::budget::GateRequest {
+            command: "deploy",
+            network: &args.network,
+            contract: None,
+            function: None,
+            metrics: crate::utils::budget::BudgetMetrics::from_parts(
+                0,
+                resource_fee_stroops,
+                usage.cpu_insns,
+                usage.mem_bytes,
+                usage.read_entries,
+                usage.write_entries,
+                usage.read_bytes,
+                usage.write_bytes,
+                usage.event_bytes,
+                0,
+            ),
+            override_reason: redacted_override_reason.as_deref(),
+            policy_path: None,
+        })?;
+    if !budget_report.checks.is_empty() {
+        crate::commands::budget::render_report(&budget_report, "markdown")?;
+        p::separator();
+    }
+    if budget_report.decision.blocks() {
+        anyhow::bail!(budget_report.block_message());
     }
 
     // Build operation summary for confirmation

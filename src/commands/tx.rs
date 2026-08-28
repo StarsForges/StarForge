@@ -2,6 +2,7 @@ use anyhow::Result;
 use clap::{Args, Subcommand};
 use colored::*;
 
+use crate::commands::ai::impact::redactor::redact_text;
 use crate::utils::confirmation;
 use crate::utils::horizon::FeeStats;
 use crate::utils::{config, crypto, horizon, print as p, tx_batch}; // Import FeeStats
@@ -42,6 +43,10 @@ pub struct BatchArgs {
     /// Skip confirmation prompt
     #[arg(long, default_value = "false")]
     pub yes: bool,
+    /// Explicit one-time reason to proceed despite a budget policy violation
+    /// (see `starforge budget`); recorded in the budget audit log
+    #[arg(long)]
+    pub budget_override_reason: Option<String>,
 }
 
 #[derive(Args)]
@@ -64,6 +69,10 @@ pub struct SendArgs {
     /// Skip confirmation prompt
     #[arg(long, default_value = "false")]
     pub yes: bool,
+    /// Explicit one-time reason to proceed despite a budget policy violation
+    /// (see `starforge budget`); recorded in the budget audit log
+    #[arg(long)]
+    pub budget_override_reason: Option<String>,
 }
 
 #[derive(Args)]
@@ -189,6 +198,37 @@ fn handle_batch(args: BatchArgs) -> Result<()> {
             &tx_result.transaction_xdr[..tx_result.transaction_xdr.len().min(20)]
         ),
     );
+
+    let tx_size_bytes = tx_envelope_size_bytes(&tx_result.transaction_xdr);
+    let redacted_override_reason = args.budget_override_reason.as_deref().map(redact_text);
+    let budget_report =
+        crate::utils::budget::run_pre_signing_check(crate::utils::budget::GateRequest {
+            command: "tx-batch",
+            network: &args.network,
+            contract: None,
+            function: None,
+            metrics: crate::utils::budget::BudgetMetrics::from_parts(
+                tx_result.fee,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                tx_size_bytes,
+            ),
+            override_reason: redacted_override_reason.as_deref(),
+            policy_path: None,
+        })?;
+    if !budget_report.checks.is_empty() {
+        crate::commands::budget::render_report(&budget_report, "markdown")?;
+        p::separator();
+    }
+    if budget_report.decision.blocks() {
+        anyhow::bail!(budget_report.block_message());
+    }
 
     // Build operation summary for confirmation
     let risk_level = if args.network == "mainnet" {
@@ -413,6 +453,37 @@ fn handle_send(args: SendArgs) -> Result<()> {
         &format!("{}...", &tx_result.transaction_xdr[..20]),
     );
 
+    let tx_size_bytes = tx_envelope_size_bytes(&tx_result.transaction_xdr);
+    let redacted_override_reason = args.budget_override_reason.as_deref().map(redact_text);
+    let budget_report =
+        crate::utils::budget::run_pre_signing_check(crate::utils::budget::GateRequest {
+            command: "tx-send",
+            network: &args.network,
+            contract: None,
+            function: None,
+            metrics: crate::utils::budget::BudgetMetrics::from_parts(
+                tx_result.fee,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                tx_size_bytes,
+            ),
+            override_reason: redacted_override_reason.as_deref(),
+            policy_path: None,
+        })?;
+    if !budget_report.checks.is_empty() {
+        crate::commands::budget::render_report(&budget_report, "markdown")?;
+        p::separator();
+    }
+    if budget_report.decision.blocks() {
+        anyhow::bail!(budget_report.block_message());
+    }
+
     // Build operation summary for confirmation
     let risk_level = if args.network == "mainnet" {
         confirmation::RiskLevel::High
@@ -489,6 +560,18 @@ fn handle_send(args: SendArgs) -> Result<()> {
     p::separator();
 
     Ok(())
+}
+
+/// Decodes a base64 transaction envelope XDR string and returns its raw byte
+/// length, used as the `tx-size-bytes` budget metric. Returns 0 (rather than
+/// erroring) on malformed input so a budget check never fails a transaction
+/// for a reason unrelated to the transaction's own limits.
+fn tx_envelope_size_bytes(transaction_xdr: &str) -> u64 {
+    use base64::{engine::general_purpose::STANDARD, Engine};
+    STANDARD
+        .decode(transaction_xdr)
+        .map(|bytes| bytes.len() as u64)
+        .unwrap_or(0)
 }
 
 fn parse_asset(asset: &str) -> Result<(Option<String>, Option<String>)> {

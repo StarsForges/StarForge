@@ -62,6 +62,24 @@ starforge docs diff old/kb.json new/kb.json --fail-on-breaking
 
 See [docs/docgen.md](docs/docgen.md) for the full guide.
 
+### Transaction Fee & Resource Budgets
+Deterministic, enforceable ceilings on classic fees, Soroban resource fees,
+instructions, memory, ledger I/O, event size, and transaction size — checked
+pre-signing in `deploy`, `contract invoke`, `batch pay`, and `tx
+send`/`batch`, with layered global/network/command/contract/function policy
+overrides, one-time audited overrides, baseline regression tracking, and a
+stable JSON contract for CI. Opt-in and network-free: nothing changes until
+you run `starforge budget init`.
+
+```bash
+starforge budget init
+starforge budget explain --command deploy
+starforge budget check --command invoke --simulation-file sim.json
+starforge budget baseline --label ci && starforge budget diff --label ci
+```
+
+See [docs/budgets.md](docs/budgets.md) for the full guide.
+
 ### Context-aware Soroban assistant
 
 Index the current workspace and use it for deterministic or provider-backed
@@ -365,6 +383,33 @@ starforge contract inspect CCPYZFKEAXHHS5VVW5J45TOU7S2EODJ7TZNJIA5LKDVL3PESCES6F
 starforge contract generate-bindings ./my_contract.wasm --lang rust
 starforge contract generate-bindings ./my_contract.wasm --lang ts
 ```
+
+### Budget commands
+
+```bash
+# Write a starting policy (~/.starforge/data/budget/policy.json)
+starforge budget init
+
+# See the effective (resolved) limits for a scope, and which layers set them
+starforge budget explain --command deploy --network mainnet
+
+# Evaluate a captured simulation against the policy without running a command
+starforge budget check --command invoke --contract CABC... --function transfer \
+  --simulation-file tests/fixtures/soroban_rpc/simulate_cost_with_footprint.json
+
+# Proceed past a hard limit with an audited, one-time reason
+starforge deploy --wasm ./my_contract.wasm --budget-override-reason "hotfix approved by release manager"
+
+# Track metrics over time and fail CI on regression
+starforge budget baseline --label ci-nightly --simulation-file sim.json
+starforge budget diff --label ci-nightly --threshold-percent 10
+
+# Review enforcement history
+starforge budget audit --decision block
+```
+
+See [docs/budgets.md](docs/budgets.md) for policy layering, security
+considerations, and CI setup.
 
 ### Upgrade safety analysis
 

@@ -1,5 +1,6 @@
 pub mod ai_telemetry;
 pub mod bindings;
+pub mod budget;
 pub mod ceremony;
 pub mod compliance;
 pub mod config;
