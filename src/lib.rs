@@ -7,5 +7,6 @@
     clippy::unnecessary_lazy_evaluations
 )]
 
+pub mod compatibility;
 pub mod plugins;
 pub mod utils;

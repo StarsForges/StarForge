@@ -1,5 +1,13 @@
 # Test Fixtures
 
+## Compatibility
+
+`compatibility/` contains synthetic Soroban JSON-RPC 2.0 replies for network,
+ledger, health, version, method-discovery, vendor-extension, and malformed-probe
+paths. They contain no accounts, signatures, valid transaction envelopes, API
+tokens, or live service identifiers. Compatibility CI uses these fixtures and a
+local mock server rather than public endpoints.
+
 This directory contains binary fixtures used by StarForge's test suite.
 
 ## minimal.wasm

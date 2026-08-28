@@ -285,6 +285,18 @@ fn run_dry_run(
 }
 
 pub fn handle(args: DeployArgs) -> Result<()> {
+    if args.simulate || args.dry_run {
+        crate::commands::compatibility::gate_configured_feature(
+            "contract_simulation",
+            &args.network,
+        )?;
+    }
+    if args.execute {
+        crate::commands::compatibility::gate_configured_feature(
+            "transaction_submission",
+            &args.network,
+        )?;
+    }
     p::header("Deploy Soroban Contract");
 
     if !args.wasm.exists() {
