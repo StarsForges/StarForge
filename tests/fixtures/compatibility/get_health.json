@@ -1,0 +1,11 @@
+{
+  "jsonrpc": "2.0",
+  "id": 4,
+  "result": {
+    "status": "healthy",
+    "oldestLedger": 500001,
+    "latestLedger": 501000,
+    "ledgerRetentionWindow": 1000,
+    "maxHealthyLedgerLatency": 30
+  }
+}

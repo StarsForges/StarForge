@@ -1,0 +1,21 @@
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "methods": [
+      { "name": "rpc.discover" },
+      { "name": "getHealth" },
+      { "name": "getNetwork" },
+      { "name": "getLatestLedger" },
+      { "name": "getVersionInfo" },
+      { "name": "simulateTransaction" },
+      { "name": "sendTransaction" },
+      { "name": "getTransaction" },
+      { "name": "getEvents" },
+      { "name": "getLedgerEntries" },
+      { "name": "getTransactions" },
+      { "name": "getLedgers" },
+      { "name": "vendor.traceLedger" }
+    ]
+  }
+}

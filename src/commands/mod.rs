@@ -5,6 +5,7 @@ pub mod batch;
 pub mod benchmark;
 pub mod budget;
 pub mod command_tree;
+pub mod compatibility;
 pub mod completions;
 pub mod compliance;
 pub mod config;
