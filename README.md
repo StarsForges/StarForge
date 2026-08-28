@@ -97,6 +97,25 @@ starforge ai assistant diagnose "simulation failed" --preview --format json
 See [docs/context-aware-assistant.md](docs/context-aware-assistant.md) for the
 workflow, privacy, configuration, telemetry, and JSON v1 contracts.
 
+### Real-time anomaly detection
+
+Monitor a Soroban contract's live event stream, transaction outcomes, and
+fee/resource usage against its own historical baseline, raising alerts for
+volume spikes, unusual callers, error-rate shifts, fee/resource regressions,
+and suspicious event payloads. Detection is always deterministic (z-score
+against a baseline, or a fixed fallback threshold before enough history
+exists); an optional AI narrative only explains alerts already raised.
+
+```bash
+starforge anomaly monitor --contract CABC... --follow
+starforge anomaly baseline update --contract CABC... --events-file events.json
+starforge anomaly alert-test --contract CABC... --metrics-file window.json --fail-on high
+starforge anomaly report --contract CABC... --since-hours 24
+```
+
+See [docs/anomaly-detection.md](docs/anomaly-detection.md) for the detector
+catalog, baseline/alert persistence format, and CI-gating workflow.
+
 ---
 
 ## Installation
