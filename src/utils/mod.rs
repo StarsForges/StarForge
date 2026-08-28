@@ -16,6 +16,7 @@ pub mod multisig;
 pub mod node;
 pub mod notifications;
 pub mod optimizer;
+pub mod performance;
 pub mod preflight;
 pub mod print;
 pub mod profiler;

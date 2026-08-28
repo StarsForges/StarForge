@@ -1,0 +1,4 @@
+[workspace]
+members = ["contracts/token"]
+resolver = "2"
+

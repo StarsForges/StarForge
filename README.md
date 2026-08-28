@@ -21,6 +21,13 @@ This project is actively maintained and open to community contributions.
 
 ## Features
 
+### Natural-language Soroban queries
+
+Plan and execute safe, read-only contract state, storage, event, ledger, and
+transaction questions with `starforge query`. Common intents work offline;
+AI-assisted planning is opt-in and falls back deterministically. See the
+[query guide](docs/natural-language-query.md).
+
 ### ?? Wallet Management
 Create and manage Stellar ed25519 keypairs locally. Generate cryptographically secure keys using proper Stellar strkey encoding (G... for public, S... for secret). Optionally encrypt keys at rest with AES-256-GCM. Fund testnet accounts via Friendbot, list all saved wallets, inspect live on-chain balances, and securely store keys in `~/.starforge/config.toml`.
 
@@ -72,6 +79,23 @@ starforge budget baseline --label ci && starforge budget diff --label ci
 ```
 
 See [docs/budgets.md](docs/budgets.md) for the full guide.
+
+### Context-aware Soroban assistant
+
+Index the current workspace and use it for deterministic or provider-backed
+Soroban explanation, diagnosis, suggestions, scaffold planning, and security
+review. Context paths remain relative, common secrets are redacted before
+persistence or transmission, prompts can be previewed, and provider failures
+fall back to offline guidance.
+
+```bash
+starforge ai assistant index --root .
+starforge ai assistant review "check authorization and storage TTL" --offline
+starforge ai assistant diagnose "simulation failed" --preview --format json
+```
+
+See [docs/context-aware-assistant.md](docs/context-aware-assistant.md) for the
+workflow, privacy, configuration, telemetry, and JSON v1 contracts.
 
 ---
 

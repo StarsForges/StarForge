@@ -1,0 +1,56 @@
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "latestLedger": 99999,
+    "cost": {
+      "cpuInsns": 75000000,
+      "memBytes": 22020096
+    },
+    "minResourceFee": 8500,
+    "transactionData": {
+      "resources": {
+        "footprint": {
+          "readOnly": [
+            { "sizeHintBytes": 64 },
+            { "sizeHintBytes": 128 },
+            { "sizeHintBytes": 96 },
+            { "sizeHintBytes": 48 },
+            { "sizeHintBytes": 32 },
+            { "sizeHintBytes": 64 },
+            { "sizeHintBytes": 96 },
+            { "sizeHintBytes": 128 }
+          ],
+          "readWrite": [
+            { "sizeHintBytes": 256 },
+            { "sizeHintBytes": 512 },
+            { "sizeHintBytes": 1024 },
+            { "sizeHintBytes": 128 },
+            { "sizeHintBytes": 64 },
+            { "sizeHintBytes": 256 }
+          ]
+        }
+      }
+    },
+    "events": [
+      "AAAA_LONG_EVENT_DATA_HERE_PADDING_TO_MAKE_IT_LARGE_AAAA_LONG_EVENT_DATA_HERE_PADDING_AAAA_LONG_EVENT_DATA_HERE_PADDING_TO_MAKE_IT_LARGE_AAAA_LONG_EVENT_DATA_HERE_PADDING_AAAA_LONG_EVENT_DATA_HERE_PADDING_TO_MAKE_IT_LARGE_AAAA_LONG_EVENT_DATA_HERE_PADDING_AAAA_LONG_EVENT_DATA_HERE_PADDING_TO_MAKE_IT_LARGE_AAAA_LONG_EVENT_DATA_HERE_PADDING_AAAA_LONG_EVENT_DATA_HERE_PADDING_TO_MAKE_IT_LARGE_AAAA_LONG_EVENT_DATA_HERE_PADDING_AAAA_LONG_EVENT_DATA_HERE_AAAA_LONG_EVENT_DATA_HERE_PADDING_TO_MAKE_IT_LARGE_AAAA_LONG_EVENT_DATA_HERE_PADDING",
+      "BBBB",
+      "CCCC",
+      "DDDD",
+      "EEEE",
+      "FFFF",
+      "GGGG",
+      "HHHH",
+      "IIII",
+      "JJJJ",
+      "KKKK"
+    ],
+    "results": [
+      {
+        "xdr": "AAAABQ==",
+        "auth": []
+      }
+    ],
+    "returnValue": "heavy_value"
+  }
+}

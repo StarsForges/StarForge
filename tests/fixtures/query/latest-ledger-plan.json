@@ -1,0 +1,13 @@
+{
+  "schema_version": "starforge.query-plan/v1",
+  "question": "what is the current ledger?",
+  "network": "testnet",
+  "source": "deterministic",
+  "operations": [
+    {
+      "id": "op-1",
+      "kind": "latest_ledger",
+      "rationale": "Read the latest ledger sequence from Soroban RPC."
+    }
+  ]
+}
