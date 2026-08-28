@@ -8,8 +8,8 @@
 )]
 
 mod commands;
-pub use starforge::plugins;
-mod compatibility;
+pub use starforge::{compatibility, plugins};
+mod signer_rotation;
 mod utils;
 
 use anyhow::Context;
@@ -42,6 +42,9 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    /// Inspect and safely migrate on-chain account signer policies
+    #[command(subcommand)]
+    Account(commands::account::AccountCommands),
     /// Manage test wallets (create, list, fund, show, remove)
     #[command(subcommand)]
     Wallet(commands::wallet::WalletCommands),
@@ -187,9 +190,9 @@ fn main() {
         &cli.command,
         Commands::Upgrade(commands::upgrade::UpgradeCommands::Analyze(args))
             if args.format == "json"
-    ) || matches!(&cli.command, Commands::Query(cmd) if commands::query::is_machine_readable(cmd))
-        || matches!(&cli.command, Commands::Ai(args) if args.is_machine_readable())
-        || matches!(&cli.command, Commands::Compatibility(cmd) if commands::compatibility::is_machine_readable(cmd));
+    ) || matches!(&cli.command, Commands::Account(cmd) if commands::account::is_machine_readable(cmd))
+        || matches!(&cli.command, Commands::Query(cmd) if commands::query::is_machine_readable(cmd))
+        || matches!(&cli.command, Commands::Ai(args) if args.is_machine_readable());
 
     // Initialise structured logging before anything else runs.
     let log_cfg =
@@ -217,6 +220,7 @@ fn main() {
     }
 
     let command_name = match &cli.command {
+        Commands::Account(_) => "account",
         Commands::Wallet(_) => "wallet",
         Commands::New(_) => "new",
         Commands::Contract(_) => "contract",
@@ -257,6 +261,7 @@ fn main() {
 
     let start = std::time::Instant::now();
     let result = match cli.command {
+        Commands::Account(cmd) => commands::account::handle(cmd),
         Commands::Wallet(cmd) => commands::wallet::handle(cmd),
         Commands::New(cmd) => commands::new::handle(cmd),
         Commands::Contract(cmd) => commands::contract::handle(cmd),

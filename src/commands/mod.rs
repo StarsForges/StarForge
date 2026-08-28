@@ -1,3 +1,4 @@
+pub mod account;
 pub mod ai;
 pub mod anomaly;
 pub mod batch;

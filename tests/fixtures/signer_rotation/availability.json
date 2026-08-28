@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "account_id": "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+  "master_key": "hardware",
+  "signers": [
+    {
+      "key": "GAAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQDZ7H",
+      "availability": "offline",
+      "label": "air-gapped current signer"
+    }
+  ]
+}

@@ -96,6 +96,9 @@ cleanup() {
         # Note: Add wallet deletion command when implemented
         # $STARFORGE wallet delete "$TEST_WALLET_NAME" --yes 2>/dev/null || true
     fi
+    if [ -n "${ROTATION_TMP:-}" ] && [ -d "$ROTATION_TMP" ]; then
+        rm -rf "$ROTATION_TMP"
+    fi
 }
 
 trap cleanup EXIT
@@ -199,9 +202,19 @@ echo ""
 # Test: completions generation
 run_test "completions bash" "$STARFORGE completions bash"
 
-# Compatibility commands are deliberately offline in the default smoke suite.
-run_test "compatibility matrix" "$STARFORGE --quiet compatibility matrix --format json"
-run_test_with_output "compatibility future protocol" "$STARFORGE --quiet compatibility status --protocol-version 999 --format json" "future_unverified"
+# Deterministic signer-rotation workflow (never opens a network connection)
+ROTATION_TMP=$(mktemp -d)
+run_test_with_output \
+    "account signers inspect fixture" \
+    "$STARFORGE -q account signers inspect --input tests/fixtures/signer_rotation/current.json --format json" \
+    '"schema_version": 1'
+run_test \
+    "account rotation plan fixture" \
+    "$STARFORGE -q account rotation plan --current tests/fixtures/signer_rotation/current.json --target tests/fixtures/signer_rotation/target.json --output $ROTATION_TMP/plan.json --format json"
+run_test_with_output \
+    "account rotation execute offline" \
+    "$STARFORGE -q account rotation execute --plan $ROTATION_TMP/plan.json --state $ROTATION_TMP/state.json --handoff-dir $ROTATION_TMP/handoff --observed-policy tests/fixtures/signer_rotation/current.json --format json" \
+    '"status": "awaiting_approval"'
 
 echo ""
 echo -e "${BLUE}═══════════════════════════════════════════════════════${NC}"

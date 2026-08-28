@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "network": "Test SDF Network ; September 2015",
+  "account_id": "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+  "sequence": 100,
+  "observed_ledger": 500,
+  "master_key": {
+    "weight": 1,
+    "availability": "software"
+  },
+  "thresholds": {
+    "low": 1,
+    "medium": 2,
+    "high": 2
+  },
+  "signers": [
+    {
+      "key": "GAAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQDZ7H",
+      "weight": 2,
+      "signer_type": "ed25519_public_key",
+      "availability": "software",
+      "label": "current operations key"
+    }
+  ]
+}

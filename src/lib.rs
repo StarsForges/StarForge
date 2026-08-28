@@ -9,4 +9,5 @@
 
 pub mod compatibility;
 pub mod plugins;
+pub mod signer_rotation;
 pub mod utils;
