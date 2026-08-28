@@ -199,6 +199,10 @@ echo ""
 # Test: completions generation
 run_test "completions bash" "$STARFORGE completions bash"
 
+# Compatibility commands are deliberately offline in the default smoke suite.
+run_test "compatibility matrix" "$STARFORGE --quiet compatibility matrix --format json"
+run_test_with_output "compatibility future protocol" "$STARFORGE --quiet compatibility status --protocol-version 999 --format json" "future_unverified"
+
 echo ""
 echo -e "${BLUE}═══════════════════════════════════════════════════════${NC}"
 echo -e "${BLUE}  Test Results${NC}"

@@ -15,6 +15,20 @@
 
 Think of it as the "Hardhat or Foundry" experience for the Stellar ecosystem, built in Rust for speed and reliability.
 
+### Protocol and RPC compatibility
+
+Audit a network or project before protocol upgrades and RPC provider changes:
+
+```bash
+starforge compatibility matrix
+starforge compatibility probe
+starforge compatibility status
+starforge compatibility audit --path . --fail-on incompatible
+starforge compatibility export --audit-path . --output compatibility-evidence.json
+```
+
+Reports use a stable versioned JSON contract, redact endpoint credentials, and do not require a live network in CI. See [the user guide](docs/compatibility.md) and [maintainer guide](docs/compatibility-maintainers.md).
+
 This project is actively maintained and open to community contributions.
 
 ---

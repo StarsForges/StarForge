@@ -49,6 +49,10 @@ pub struct InvokeArgs {
 pub fn handle(args: InvokeArgs) -> Result<()> {
     let cfg = config::load()?;
     let network = args.network.as_ref().unwrap_or(&cfg.network);
+    crate::commands::compatibility::gate_configured_feature("contract_simulation", network)?;
+    if !args.simulate {
+        crate::commands::compatibility::gate_configured_feature("transaction_submission", network)?;
+    }
 
     // Validate contract ID
     config::validate_contract_id(&args.contract_id)?;

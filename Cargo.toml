@@ -36,7 +36,7 @@ sha2 = "0.10"
 indicatif = "0.17.7"
 libloading = "0.8.1"
 uuid = { version = "1.6.1", features = ["v4"] }
-hidapi = { version = "2.6.5", optional = true }
+hidapi = { version = "2.6.5", default-features = false, features = ["linux-native-basic-udev"], optional = true }
 trezor-client = { version = "0.1.5", default-features = false, features = ["stellar"], optional = true }
 zxcvbn = "=3.1.0"
 hex = "0.4"

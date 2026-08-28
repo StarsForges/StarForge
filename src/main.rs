@@ -9,6 +9,7 @@
 
 mod commands;
 pub use starforge::plugins;
+mod compatibility;
 mod utils;
 
 use anyhow::Context;
@@ -151,6 +152,10 @@ enum Commands {
     #[command(subcommand)]
     Anomaly(commands::anomaly::AnomalyCommands),
 
+    /// Audit Stellar protocol, Soroban RPC, XDR, and project compatibility
+    #[command(subcommand)]
+    Compatibility(commands::compatibility::CompatibilityCommands),
+
     /// Execute an installed plugin command (e.g. `starforge defi ...`)
     #[command(external_subcommand)]
     External(Vec<String>),
@@ -183,7 +188,8 @@ fn main() {
         Commands::Upgrade(commands::upgrade::UpgradeCommands::Analyze(args))
             if args.format == "json"
     ) || matches!(&cli.command, Commands::Query(cmd) if commands::query::is_machine_readable(cmd))
-        || matches!(&cli.command, Commands::Ai(args) if args.is_machine_readable());
+        || matches!(&cli.command, Commands::Ai(args) if args.is_machine_readable())
+        || matches!(&cli.command, Commands::Compatibility(cmd) if commands::compatibility::is_machine_readable(cmd));
 
     // Initialise structured logging before anything else runs.
     let log_cfg =
@@ -244,6 +250,7 @@ fn main() {
         Commands::Query(_) => "query",
         Commands::Profile(_) => "profile",
         Commands::Anomaly(_) => "anomaly",
+        Commands::Compatibility(_) => "compatibility",
         Commands::External(_) => "external",
     }
     .to_string();
@@ -291,6 +298,7 @@ fn main() {
         Commands::Anomaly(cmd) => tokio::runtime::Runtime::new()
             .context("Failed to create async runtime")
             .and_then(|rt| rt.block_on(commands::anomaly::handle(cmd))),
+        Commands::Compatibility(cmd) => commands::compatibility::handle(cmd),
         Commands::External(args) => handle_external_plugin(args),
     };
     let duration = start.elapsed();
