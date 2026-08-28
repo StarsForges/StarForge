@@ -21,6 +21,13 @@ This project is actively maintained and open to community contributions.
 
 ## Features
 
+### Safe account signer rotation
+
+Inspect signer policies and generate authorization-preserving, resumable
+multi-envelope migrations with hardware/offline handoff, sponsorship, exact
+on-chain verification, and emergency rollback. See the
+[account signer rotation guide](docs/account-signer-rotation.md).
+
 ### Natural-language Soroban queries
 
 Plan and execute safe, read-only contract state, storage, event, ledger, and
