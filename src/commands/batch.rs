@@ -2,6 +2,7 @@ use anyhow::Result;
 use clap::{Args, Subcommand};
 use colored::*;
 
+use crate::commands::ai::impact::redactor::redact_text;
 use crate::utils::config;
 use crate::utils::confirmation;
 use crate::utils::crypto;
@@ -47,6 +48,10 @@ pub struct PayArgs {
     /// Maximum submission retries per transaction chunk (fee-bump / sequence retry)
     #[arg(long, default_value_t = DEFAULT_MAX_RETRIES)]
     pub max_retries: u32,
+    /// Explicit one-time reason to proceed despite a budget policy violation
+    /// (see `starforge budget`); recorded in the budget audit log
+    #[arg(long)]
+    pub budget_override_reason: Option<String>,
 }
 
 #[derive(Args)]
@@ -108,6 +113,7 @@ fn handle_resume(args: ResumeArgs) -> Result<()> {
             dry_run: false,
             yes: args.yes,
             max_retries: args.max_retries,
+            budget_override_reason: None,
         },
         true,
     )
@@ -196,6 +202,27 @@ fn handle_pay(args: PayArgs, force_resume: bool) -> Result<()> {
     });
 
     print_cost_report(&report_preview);
+
+    let redacted_override_reason = args.budget_override_reason.as_deref().map(redact_text);
+    let budget_report =
+        crate::utils::budget::run_pre_signing_check(crate::utils::budget::GateRequest {
+            command: "batch-pay",
+            network: &args.network,
+            contract: None,
+            function: None,
+            metrics: crate::utils::budget::BudgetMetrics::classic_only(
+                report_preview.estimated_fee_stroops,
+            ),
+            override_reason: redacted_override_reason.as_deref(),
+            policy_path: None,
+        })?;
+    if !budget_report.checks.is_empty() {
+        crate::commands::budget::render_report(&budget_report, "markdown")?;
+        p::separator();
+    }
+    if budget_report.decision.blocks() {
+        anyhow::bail!(budget_report.block_message());
+    }
 
     let risk_level = if args.network == "mainnet" {
         confirmation::RiskLevel::High

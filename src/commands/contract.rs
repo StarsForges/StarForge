@@ -1,3 +1,4 @@
+use crate::commands::ai::impact::redactor::redact_text;
 use crate::utils::{bindings, config, crypto, print as p, soroban};
 use anyhow::Result;
 use clap::{Args, Subcommand, ValueEnum};
@@ -45,6 +46,10 @@ pub struct InvokeArgs {
     /// Wallet name that sponsors fees via a fee-bump envelope when submission needs it
     #[arg(long)]
     pub fee_payer: Option<String>,
+    /// Explicit one-time reason to proceed despite a budget policy violation
+    /// (see `starforge budget`); recorded in the budget audit log
+    #[arg(long)]
+    pub budget_override_reason: Option<String>,
 }
 
 #[derive(Args)]
@@ -220,6 +225,50 @@ fn handle_invoke(args: InvokeArgs) -> Result<()> {
 
     if args.network == "mainnet" {
         p::warn("You are invoking on MAINNET. This may cost real XLM if submitted.");
+    }
+
+    // Pre-signing budget enforcement: simulate once up front (before touching
+    // any wallet secret) purely to measure resource usage/fee, so a blocked
+    // operation fails before prompting for a wallet password. `submit`
+    // re-simulates internally via `soroban::invoke_contract` below; that's a
+    // deliberate trade-off (simulation is free) in exchange for genuinely
+    // gating *before* the transaction that actually gets signed and sent.
+    let pre_check = soroban::simulate_transaction(
+        &args.contract_id,
+        &args.function,
+        &args.args,
+        &arg_types,
+        &args.network,
+    )?;
+    let usage = crate::commands::cost::adapter::normalize_from_simulation(&pre_check);
+    let redacted_override_reason = args.budget_override_reason.as_deref().map(redact_text);
+    let budget_report =
+        crate::utils::budget::run_pre_signing_check(crate::utils::budget::GateRequest {
+            command: "invoke",
+            network: &args.network,
+            contract: Some(&args.contract_id),
+            function: Some(&args.function),
+            metrics: crate::utils::budget::BudgetMetrics::from_parts(
+                0,
+                pre_check.fee,
+                usage.cpu_insns,
+                usage.mem_bytes,
+                usage.read_entries,
+                usage.write_entries,
+                usage.read_bytes,
+                usage.write_bytes,
+                usage.event_bytes,
+                0,
+            ),
+            override_reason: redacted_override_reason.as_deref(),
+            policy_path: None,
+        })?;
+    if !budget_report.checks.is_empty() {
+        crate::commands::budget::render_report(&budget_report, "markdown")?;
+        p::separator();
+    }
+    if budget_report.decision.blocks() {
+        anyhow::bail!(budget_report.block_message());
     }
 
     // Load and optionally decrypt wallet for submission
