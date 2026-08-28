@@ -8,7 +8,7 @@
 )]
 
 mod commands;
-pub use starforge::plugins;
+pub use starforge::{compatibility, plugins};
 mod signer_rotation;
 mod utils;
 
