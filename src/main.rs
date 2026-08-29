@@ -151,6 +151,11 @@ enum Commands {
     #[command(subcommand)]
     Anomaly(commands::anomaly::AnomalyCommands),
 
+    /// Reproducible release builds, SBOM generation, signing, and
+    /// provenance verification
+    #[command(subcommand)]
+    Release(commands::release::ReleaseCommands),
+
     /// Execute an installed plugin command (e.g. `starforge defi ...`)
     #[command(external_subcommand)]
     External(Vec<String>),
@@ -244,6 +249,7 @@ fn main() {
         Commands::Query(_) => "query",
         Commands::Profile(_) => "profile",
         Commands::Anomaly(_) => "anomaly",
+        Commands::Release(_) => "release",
         Commands::External(_) => "external",
     }
     .to_string();
@@ -291,6 +297,7 @@ fn main() {
         Commands::Anomaly(cmd) => tokio::runtime::Runtime::new()
             .context("Failed to create async runtime")
             .and_then(|rt| rt.block_on(commands::anomaly::handle(cmd))),
+        Commands::Release(cmd) => commands::release::handle(cmd),
         Commands::External(args) => handle_external_plugin(args),
     };
     let duration = start.elapsed();
