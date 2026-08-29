@@ -8,7 +8,7 @@
 )]
 
 mod commands;
-pub use starforge::{compatibility, interop, plugins};
+pub use starforge::{compatibility, interop, plugins, token};
 mod signer_rotation;
 mod utils;
 
@@ -155,6 +155,10 @@ enum Commands {
     #[command(subcommand)]
     Anomaly(commands::anomaly::AnomalyCommands),
 
+    /// Audit Stellar protocol, Soroban RPC, XDR, and project compatibility
+    #[command(subcommand)]
+    Compatibility(commands::compatibility::CompatibilityCommands),
+
     /// Reproducible release builds, SBOM generation, signing, and
     /// provenance verification
     #[command(subcommand)]
@@ -163,6 +167,10 @@ enum Commands {
     /// Bidirectional interoperability with external Stellar tooling
     #[command(subcommand)]
     Interop(commands::interop::InteropCommands),
+
+    /// SEP-41-style Soroban token administration and operations
+    #[command(subcommand)]
+    Token(commands::token::TokenCommands),
 
     /// Execute an installed plugin command (e.g. `starforge defi ...`)
     #[command(external_subcommand)]
@@ -197,10 +205,10 @@ fn main() {
             if args.format == "json"
     ) || matches!(&cli.command, Commands::Account(cmd) if commands::account::is_machine_readable(cmd))
         || matches!(&cli.command, Commands::Query(cmd) if commands::query::is_machine_readable(cmd))
+        || matches!(&cli.command, Commands::Ai(args) if args.is_machine_readable())
         || matches!(&cli.command, Commands::Compatibility(cmd) if commands::compatibility::is_machine_readable(cmd))
-        || matches!(&cli.command, Commands::Compatibility(cmd) if commands::compatibility::is_machine_readable(cmd))
-        || matches!(&cli.command, Commands::Compatibility(cmd) if commands::compatibility::is_machine_readable(cmd))
-        || matches!(&cli.command, Commands::Interop(cmd) if commands::interop::is_machine_readable(cmd));
+        || matches!(&cli.command, Commands::Interop(cmd) if commands::interop::is_machine_readable(cmd))
+        || matches!(&cli.command, Commands::Token(cmd) if commands::token::is_machine_readable(cmd));
 
     // Initialise structured logging before anything else runs.
     let log_cfg =
@@ -263,7 +271,9 @@ fn main() {
         Commands::Profile(_) => "profile",
         Commands::Anomaly(_) => "anomaly",
         Commands::Compatibility(_) => "compatibility",
+        Commands::Release(_) => "release",
         Commands::Interop(_) => "interop",
+        Commands::Token(_) => "token",
         Commands::External(_) => "external",
     }
     .to_string();
@@ -313,7 +323,9 @@ fn main() {
             .context("Failed to create async runtime")
             .and_then(|rt| rt.block_on(commands::anomaly::handle(cmd))),
         Commands::Compatibility(cmd) => commands::compatibility::handle(cmd),
+        Commands::Release(cmd) => commands::release::handle(cmd),
         Commands::Interop(cmd) => commands::interop::handle(cmd),
+        Commands::Token(cmd) => commands::token::handle(cmd),
         Commands::External(args) => handle_external_plugin(args),
     };
     let duration = start.elapsed();

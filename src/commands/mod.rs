@@ -34,6 +34,7 @@ pub mod shell;
 pub mod telemetry;
 pub mod template;
 pub mod test;
+pub mod token;
 pub mod tutorial;
 pub mod tx;
 pub mod upgrade;
