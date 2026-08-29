@@ -451,6 +451,35 @@ starforge budget audit --decision block
 See [docs/budgets.md](docs/budgets.md) for policy layering, security
 considerations, and CI setup.
 
+### Release commands
+
+Reproducible release builds, SBOM generation, signing, and offline
+provenance verification for StarForge's own releases:
+
+```bash
+# Build (or reuse) per-target binaries into normalized, deterministic archives
+starforge release prepare --version 1.2.0 --target native --skip-build \
+  --source-date-epoch "$(git log -1 --format=%ct)"
+
+# Write the versioned release manifest from what prepare staged
+starforge release manifest --version 1.2.0
+
+# Generate a CycloneDX software bill of materials
+starforge release sbom --out sbom.json --include-assets templates
+
+# Sign the manifest/SBOM and write a SLSA-shaped provenance statement
+starforge release attest --dir ~/.starforge/release/staging/1.2.0 \
+  --signing-key ~/.starforge/release-signing.key --generate-key-if-missing
+
+# Verify a staged or downloaded release directory entirely offline
+starforge release verify --dir ~/.starforge/release/staging/1.2.0
+```
+
+See [docs/release-provenance.md](docs/release-provenance.md) for the full
+command reference, threat model, reproducibility notes, and recovery
+guidance. Publishing remains a manual, maintainer-controlled step — nothing
+here uploads or pushes anything.
+
 ### Upgrade safety analysis
 
 Compare the currently deployed build with a candidate before creating an

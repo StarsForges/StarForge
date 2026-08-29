@@ -155,9 +155,10 @@ enum Commands {
     #[command(subcommand)]
     Anomaly(commands::anomaly::AnomalyCommands),
 
-    /// Audit Stellar protocol, Soroban RPC, XDR, and project compatibility
+    /// Reproducible release builds, SBOM generation, signing, and
+    /// provenance verification
     #[command(subcommand)]
-    Compatibility(commands::compatibility::CompatibilityCommands),
+    Release(commands::release::ReleaseCommands),
 
     /// Bidirectional interoperability with external Stellar tooling
     #[command(subcommand)]
