@@ -26,6 +26,15 @@ pub struct PluginManifest {
     /// Optional maximum StarForge version (semver).
     #[serde(default)]
     pub starforge_version_max: Option<String>,
+    /// Optional minimum Stellar protocol accepted by this plugin.
+    #[serde(default)]
+    pub stellar_protocol_min: Option<u32>,
+    /// Optional maximum Stellar protocol accepted by this plugin.
+    #[serde(default)]
+    pub stellar_protocol_max: Option<u32>,
+    /// Soroban RPC methods the plugin needs at runtime.
+    #[serde(default)]
+    pub required_rpc_methods: Vec<String>,
     /// WASM plugin sandbox permissions.
     #[serde(default)]
     pub permissions: WasmPluginPermissions,
@@ -77,6 +86,49 @@ impl PluginManifest {
                     self.name,
                     max,
                     CORE_VERSION
+                );
+            }
+        }
+
+        if let (Some(minimum), Some(maximum)) =
+            (self.stellar_protocol_min, self.stellar_protocol_max)
+        {
+            if minimum > maximum {
+                anyhow::bail!(
+                    "Plugin '{}' declares an inverted Stellar protocol range {}..{}",
+                    self.name,
+                    minimum,
+                    maximum
+                );
+            }
+        }
+        if let Some(maximum) = self.stellar_protocol_max {
+            if maximum > crate::compatibility::MAX_PROTOCOL_VERSION {
+                anyhow::bail!(
+                    "Plugin '{}' targets unverified future Stellar protocol {} (maximum validated {})",
+                    self.name,
+                    maximum,
+                    crate::compatibility::MAX_PROTOCOL_VERSION
+                );
+            }
+        }
+        if let Some(minimum) = self.stellar_protocol_min {
+            if minimum < crate::compatibility::MIN_PROTOCOL_VERSION {
+                anyhow::bail!(
+                    "Plugin '{}' requires unsupported Stellar protocol {} (minimum supported {})",
+                    self.name,
+                    minimum,
+                    crate::compatibility::MIN_PROTOCOL_VERSION
+                );
+            }
+        }
+        let known_methods = crate::compatibility::CapabilityMatrix::builtin().known_methods();
+        for method in &self.required_rpc_methods {
+            if !known_methods.contains(method) {
+                anyhow::bail!(
+                    "Plugin '{}' requires RPC method '{}' absent from the versioned capability matrix",
+                    self.name,
+                    method
                 );
             }
         }
@@ -203,6 +255,9 @@ mod tests {
             description: String::new(),
             starforge_version_min: None,
             starforge_version_max: None,
+            stellar_protocol_min: None,
+            stellar_protocol_max: None,
+            required_rpc_methods: Vec::new(),
             permissions: WasmPluginPermissions::default(),
         };
         assert!(manifest.validate().is_ok());
@@ -224,6 +279,9 @@ mod tests {
             description: String::new(),
             starforge_version_min: None,
             starforge_version_max: None,
+            stellar_protocol_min: None,
+            stellar_protocol_max: None,
+            required_rpc_methods: Vec::new(),
             permissions: WasmPluginPermissions::default(),
         };
         assert!(manifest.validate().is_err());

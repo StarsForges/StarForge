@@ -13,10 +13,49 @@ pub struct PluginMeta {
     pub description: &'static str,
 }
 
+/// Versioned compatibility declaration that plugins can expose to hosts.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CompatibilityRequirements {
+    pub schema_version: u32,
+    pub stellar_protocol_min: u32,
+    pub stellar_protocol_max: u32,
+    pub required_rpc_methods: &'static [&'static str],
+    pub optional_rpc_methods: &'static [&'static str],
+}
+
+impl CompatibilityRequirements {
+    pub const SCHEMA_VERSION: u32 = 1;
+
+    pub const fn new(
+        stellar_protocol_min: u32,
+        stellar_protocol_max: u32,
+        required_rpc_methods: &'static [&'static str],
+        optional_rpc_methods: &'static [&'static str],
+    ) -> Self {
+        Self {
+            schema_version: Self::SCHEMA_VERSION,
+            stellar_protocol_min,
+            stellar_protocol_max,
+            required_rpc_methods,
+            optional_rpc_methods,
+        }
+    }
+
+    pub fn supports_protocol(&self, protocol: u32) -> bool {
+        self.schema_version == Self::SCHEMA_VERSION
+            && self.stellar_protocol_min <= protocol
+            && protocol <= self.stellar_protocol_max
+    }
+}
+
 /// Core trait all StarForge plugins must implement.
 pub trait StarForgePlugin {
     fn meta(&self) -> PluginMeta;
     fn run(&self, args: &[String]) -> Result<(), String>;
+
+    fn compatibility(&self) -> Option<CompatibilityRequirements> {
+        None
+    }
 }
 
 /// Exports a plugin so the StarForge CLI can load it via `libloading`.
