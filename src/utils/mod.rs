@@ -15,6 +15,7 @@ pub mod mock_soroban;
 pub mod multisig;
 pub mod node;
 pub mod notifications;
+pub mod notify_router;
 pub mod optimizer;
 pub mod performance;
 pub mod preflight;

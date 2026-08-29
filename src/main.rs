@@ -156,6 +156,10 @@ enum Commands {
     #[command(subcommand)]
     Release(commands::release::ReleaseCommands),
 
+    /// Rules-based notification router with deduplication and delivery guarantees
+    #[command(subcommand)]
+    Notify(commands::notify::NotifyCommands),
+
     /// Execute an installed plugin command (e.g. `starforge defi ...`)
     #[command(external_subcommand)]
     External(Vec<String>),
@@ -250,6 +254,7 @@ fn main() {
         Commands::Profile(_) => "profile",
         Commands::Anomaly(_) => "anomaly",
         Commands::Release(_) => "release",
+        Commands::Notify(_) => "notify",
         Commands::External(_) => "external",
     }
     .to_string();
@@ -298,6 +303,7 @@ fn main() {
             .context("Failed to create async runtime")
             .and_then(|rt| rt.block_on(commands::anomaly::handle(cmd))),
         Commands::Release(cmd) => commands::release::handle(cmd),
+        Commands::Notify(cmd) => commands::notify::handle(cmd),
         Commands::External(args) => handle_external_plugin(args),
     };
     let duration = start.elapsed();

@@ -22,6 +22,7 @@ pub mod multisig_ceremony;
 pub mod network;
 pub mod new;
 pub mod node;
+pub mod notify;
 pub mod plugin;
 pub mod profile;
 pub mod query;

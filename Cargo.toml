@@ -35,7 +35,7 @@ urlencoding = "2.1"
 sha2 = "0.10"
 indicatif = "0.17.7"
 libloading = "0.8.1"
-uuid = { version = "1.6.1", features = ["v4"] }
+uuid = { version = "1.6.1", features = ["v4", "serde"] }
 hidapi = { version = "2.6.5", optional = true }
 trezor-client = { version = "0.1.5", default-features = false, features = ["stellar"], optional = true }
 zxcvbn = "=3.1.0"
@@ -58,6 +58,7 @@ async-openai = "0.14"
 tokio = { version = "1.35", features = ["full"] }
 futures = "0.3"
 csv = "1.3"
+regex = "1.10"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 seccompiler = "0.4.0"

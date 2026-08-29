@@ -250,6 +250,52 @@ run_test_with_output "release verify (passes)" \
 rm -rf "$RELEASE_FIXTURE_DIR"
 
 echo ""
+echo -e "${BLUE}──────────────────────────────────────────────────────${NC}"
+echo -e "${BLUE}8. Notification Router Command Tests${NC}"
+echo -e "${BLUE}──────────────────────────────────────────────────────${NC}"
+echo ""
+
+TEST_ROUTE_NAME="smoke-rule-$(date +%s)"
+
+# Test: notify routes list
+run_test "notify routes list" "$STARFORGE notify routes list"
+
+# Test: notify routes add
+run_test "notify routes add" \
+    "$STARFORGE notify routes add --name $TEST_ROUTE_NAME --adapter stdout --event-type command_outcome --severity info --max-attempts 3"
+
+# Test: notify routes list JSON contains added rule
+run_test_with_output "notify routes list (json)" \
+    "$STARFORGE notify routes list --json" \
+    "$TEST_ROUTE_NAME"
+
+# Test: notify routes test-rule
+run_test "notify routes test-rule" \
+    "$STARFORGE notify routes test-rule $TEST_ROUTE_NAME"
+
+# Test: notify test matching
+run_test_with_output "notify test" \
+    "$STARFORGE notify test --event-type command_outcome --title 'Smoke Event' --severity info" \
+    "$TEST_ROUTE_NAME"
+
+# Test: notify events emit with process delivery
+run_test_with_output "notify events emit" \
+    "$STARFORGE notify events emit --event-type command_outcome --title 'Smoke Event' --severity info --process --json" \
+    '"deliveries"'
+
+# Test: notify events list
+run_test "notify events list" "$STARFORGE notify events list"
+
+# Test: notify stats
+run_test "notify stats" "$STARFORGE notify stats"
+
+# Test: notify dead-letter list
+run_test "notify dead-letter list" "$STARFORGE notify dead-letter list"
+
+# Test: notify routes remove
+run_test "notify routes remove" "$STARFORGE notify routes remove $TEST_ROUTE_NAME"
+
+echo ""
 echo -e "${BLUE}═══════════════════════════════════════════════════════${NC}"
 echo -e "${BLUE}  Test Results${NC}"
 echo -e "${BLUE}═══════════════════════════════════════════════════════${NC}"
