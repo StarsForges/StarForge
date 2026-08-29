@@ -1,0 +1,4 @@
+horizon_url = "https://horizon-testnet.stellar.org"
+rpc_url = "https://soroban-testnet.stellar.org"
+network_passphrase = "Test SDF Network ; September 2015"
+friendbot_url = "https://friendbot.stellar.org"

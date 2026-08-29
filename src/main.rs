@@ -9,6 +9,7 @@
 
 mod commands;
 pub use starforge::{compatibility, plugins, token};
+pub use starforge::{compatibility, interop, plugins};
 mod signer_rotation;
 mod utils;
 
@@ -155,9 +156,14 @@ enum Commands {
     #[command(subcommand)]
     Anomaly(commands::anomaly::AnomalyCommands),
 
-    /// Audit Stellar protocol, Soroban RPC, XDR, and project compatibility
+    /// Reproducible release builds, SBOM generation, signing, and
+    /// provenance verification
     #[command(subcommand)]
-    Compatibility(commands::compatibility::CompatibilityCommands),
+    Release(commands::release::ReleaseCommands),
+
+    /// Bidirectional interoperability with external Stellar tooling
+    #[command(subcommand)]
+    Interop(commands::interop::InteropCommands),
 
     /// SEP-41-style Soroban token administration and operations
     #[command(subcommand)]
@@ -198,6 +204,10 @@ fn main() {
         || matches!(&cli.command, Commands::Query(cmd) if commands::query::is_machine_readable(cmd))
         || matches!(&cli.command, Commands::Ai(args) if args.is_machine_readable())
         || matches!(&cli.command, Commands::Token(cmd) if commands::token::is_machine_readable(cmd));
+        || matches!(&cli.command, Commands::Compatibility(cmd) if commands::compatibility::is_machine_readable(cmd))
+        || matches!(&cli.command, Commands::Compatibility(cmd) if commands::compatibility::is_machine_readable(cmd))
+        || matches!(&cli.command, Commands::Compatibility(cmd) if commands::compatibility::is_machine_readable(cmd))
+        || matches!(&cli.command, Commands::Interop(cmd) if commands::interop::is_machine_readable(cmd));
 
     // Initialise structured logging before anything else runs.
     let log_cfg =
@@ -261,6 +271,7 @@ fn main() {
         Commands::Anomaly(_) => "anomaly",
         Commands::Compatibility(_) => "compatibility",
         Commands::Token(_) => "token",
+        Commands::Interop(_) => "interop",
         Commands::External(_) => "external",
     }
     .to_string();
@@ -311,6 +322,7 @@ fn main() {
             .and_then(|rt| rt.block_on(commands::anomaly::handle(cmd))),
         Commands::Compatibility(cmd) => commands::compatibility::handle(cmd),
         Commands::Token(cmd) => commands::token::handle(cmd),
+        Commands::Interop(cmd) => commands::interop::handle(cmd),
         Commands::External(args) => handle_external_plugin(args),
     };
     let duration = start.elapsed();
