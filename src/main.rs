@@ -8,7 +8,7 @@
 )]
 
 mod commands;
-pub use starforge::{compatibility, plugins};
+pub use starforge::{compatibility, interop, plugins};
 mod signer_rotation;
 mod utils;
 
@@ -159,6 +159,10 @@ enum Commands {
     #[command(subcommand)]
     Compatibility(commands::compatibility::CompatibilityCommands),
 
+    /// Bidirectional interoperability with external Stellar tooling
+    #[command(subcommand)]
+    Interop(commands::interop::InteropCommands),
+
     /// Execute an installed plugin command (e.g. `starforge defi ...`)
     #[command(external_subcommand)]
     External(Vec<String>),
@@ -192,7 +196,10 @@ fn main() {
             if args.format == "json"
     ) || matches!(&cli.command, Commands::Account(cmd) if commands::account::is_machine_readable(cmd))
         || matches!(&cli.command, Commands::Query(cmd) if commands::query::is_machine_readable(cmd))
-        || matches!(&cli.command, Commands::Ai(args) if args.is_machine_readable());
+        || matches!(&cli.command, Commands::Compatibility(cmd) if commands::compatibility::is_machine_readable(cmd))
+        || matches!(&cli.command, Commands::Compatibility(cmd) if commands::compatibility::is_machine_readable(cmd))
+        || matches!(&cli.command, Commands::Compatibility(cmd) if commands::compatibility::is_machine_readable(cmd))
+        || matches!(&cli.command, Commands::Interop(cmd) if commands::interop::is_machine_readable(cmd));
 
     // Initialise structured logging before anything else runs.
     let log_cfg =
@@ -255,6 +262,7 @@ fn main() {
         Commands::Profile(_) => "profile",
         Commands::Anomaly(_) => "anomaly",
         Commands::Compatibility(_) => "compatibility",
+        Commands::Interop(_) => "interop",
         Commands::External(_) => "external",
     }
     .to_string();
@@ -304,6 +312,7 @@ fn main() {
             .context("Failed to create async runtime")
             .and_then(|rt| rt.block_on(commands::anomaly::handle(cmd))),
         Commands::Compatibility(cmd) => commands::compatibility::handle(cmd),
+        Commands::Interop(cmd) => commands::interop::handle(cmd),
         Commands::External(args) => handle_external_plugin(args),
     };
     let duration = start.elapsed();
