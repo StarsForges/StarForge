@@ -30,13 +30,7 @@ fn inspect_json_is_versioned_with_capabilities() {
     let output = starforge(
         home.path(),
         &[
-            "token",
-            "inspect",
-            "--id",
-            CONTRACT,
-            "--format",
-            "json",
-            "--mock",
+            "token", "inspect", "--id", CONTRACT, "--format", "json", "--mock",
         ],
     );
     assert!(
@@ -56,14 +50,7 @@ fn balance_returns_decimal_safe_amount() {
     let output = starforge(
         home.path(),
         &[
-            "token",
-            "balance",
-            ALICE,
-            "--id",
-            CONTRACT,
-            "--format",
-            "json",
-            "--mock",
+            "token", "balance", ALICE, "--id", CONTRACT, "--format", "json", "--mock",
         ],
     );
     assert!(output.status.success());
@@ -119,7 +106,11 @@ fn transfer_simulation_produces_receipt() {
             "--simulate",
         ],
     );
-    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     let receipt: Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(receipt["schema_version"], 1);
     assert_eq!(receipt["status"], "simulated");
@@ -250,7 +241,11 @@ fn batch_manifest_executes_with_partial_results() {
             "--mock",
         ],
     );
-    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     let report: Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(report["schema_version"], 1);
     assert!(report["succeeded"].as_u64().unwrap() >= 1);
@@ -285,7 +280,9 @@ fn json_output_is_banner_free() {
     let home = tempfile::tempdir().unwrap();
     let output = starforge(
         home.path(),
-        &["token", "inspect", "--id", CONTRACT, "--format", "json", "--mock"],
+        &[
+            "token", "inspect", "--id", CONTRACT, "--format", "json", "--mock",
+        ],
     );
     let stdout = String::from_utf8(output.stdout).unwrap();
     assert!(!stdout.contains("StarForge"));

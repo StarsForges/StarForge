@@ -77,9 +77,7 @@ impl UreqTokenTransport {
         if let Some(err) = parsed.error {
             anyhow::bail!("RPC error: {err}");
         }
-        parsed
-            .result
-            .context("RPC response missing result field")
+        parsed.result.context("RPC response missing result field")
     }
 }
 

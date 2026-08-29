@@ -17,7 +17,11 @@ struct SpecFunction {
 }
 
 /// Detect token capabilities from a JSON contract specification.
-pub fn detect_from_spec_json(contract_id: &str, network: &str, spec_json: &str) -> Result<TokenCapabilities> {
+pub fn detect_from_spec_json(
+    contract_id: &str,
+    network: &str,
+    spec_json: &str,
+) -> Result<TokenCapabilities> {
     let spec: ContractSpec = serde_json::from_str(spec_json)?;
     Ok(detect_from_functions(
         contract_id,

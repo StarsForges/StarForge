@@ -80,7 +80,12 @@ impl<'a, T: TokenRpcTransport> TokenReader<'a, T> {
         })
     }
 
-    pub fn balance(&self, options: &ReadOptions, account: &str, decimals: u8) -> Result<TokenBalance> {
+    pub fn balance(
+        &self,
+        options: &ReadOptions,
+        account: &str,
+        decimals: u8,
+    ) -> Result<TokenBalance> {
         let resp = self.transport.simulate_contract_call(
             &options.network,
             &options.contract_id,
@@ -171,7 +176,9 @@ impl<'a, T: TokenRpcTransport> TokenReader<'a, T> {
         options: &ReadOptions,
         capabilities: &TokenCapabilities,
     ) -> Result<SupplyState> {
-        let decimals = self.required_u8_call(options, "decimals", &[])?.unwrap_or(7);
+        let decimals = self
+            .required_u8_call(options, "decimals", &[])?
+            .unwrap_or(7);
         let total_supply = if capabilities.supports("total_supply") {
             self.raw_amount_call(options, "total_supply", &[], decimals)
                 .ok()

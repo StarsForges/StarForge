@@ -36,7 +36,12 @@ impl TokenEngine {
         self.reader().inspect(options)
     }
 
-    pub fn balance(&self, options: &ReadOptions, account: &str, decimals: u8) -> Result<TokenBalance> {
+    pub fn balance(
+        &self,
+        options: &ReadOptions,
+        account: &str,
+        decimals: u8,
+    ) -> Result<TokenBalance> {
         self.reader().balance(options, account, decimals)
     }
 
@@ -50,12 +55,7 @@ impl TokenEngine {
         self.reader().allowance(options, owner, spender, decimals)
     }
 
-    pub fn transfer(
-        &self,
-        options: &WriteOptions,
-        to: &str,
-        amount: &str,
-    ) -> Result<TokenReceipt> {
+    pub fn transfer(&self, options: &WriteOptions, to: &str, amount: &str) -> Result<TokenReceipt> {
         let read_opts = read_options_from_write(options);
         let inspect = self.reader().inspect(&read_opts)?;
         let plan = self.writer().plan_transfer(
@@ -143,7 +143,11 @@ impl TokenEngine {
             .execute_simulate_only(&plan, inspect.metadata.decimals)
     }
 
-    pub fn execute_batch(&self, manifest: &BatchManifest, simulate_only: bool) -> Result<BatchExecutionReport> {
+    pub fn execute_batch(
+        &self,
+        manifest: &BatchManifest,
+        simulate_only: bool,
+    ) -> Result<BatchExecutionReport> {
         BatchExecutor::new(&self.transport).execute(manifest, simulate_only)
     }
 }

@@ -544,5 +544,5 @@ fn legacy_soroban_path_is_scanned_when_enabled() {
     );
     assert!(output.status.success());
     let snap: Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert!(snap["identities"].as_object().unwrap().len() >= 1);
+    assert!(!snap["identities"].as_object().unwrap().is_empty());
 }

@@ -189,7 +189,11 @@ impl<'a, T: TokenRpcTransport> TokenWriter<'a, T> {
         })
     }
 
-    pub fn simulate(&self, plan: &TokenOperationPlan, decimals: u8) -> Result<TokenSimulationSummary> {
+    pub fn simulate(
+        &self,
+        plan: &TokenOperationPlan,
+        decimals: u8,
+    ) -> Result<TokenSimulationSummary> {
         let (args, types) = plan_to_invoke_args(plan, decimals)?;
         let resp = self.transport.simulate_contract_call(
             &plan.network,
@@ -302,7 +306,10 @@ pub fn check_signer(wallet_name: &str) -> Result<SignerCheckResult> {
     })
 }
 
-fn plan_to_invoke_args(plan: &TokenOperationPlan, decimals: u8) -> Result<(Vec<String>, Vec<String>)> {
+fn plan_to_invoke_args(
+    plan: &TokenOperationPlan,
+    decimals: u8,
+) -> Result<(Vec<String>, Vec<String>)> {
     match plan.kind {
         TokenOperationKind::Transfer => {
             let to = plan.args.get("to").context("missing to")?;
@@ -371,10 +378,7 @@ fn plan_to_invoke_args(plan: &TokenOperationPlan, decimals: u8) -> Result<(Vec<S
         }
         TokenOperationKind::SetAdmin => {
             let new_admin = plan.args.get("new_admin").context("missing new_admin")?;
-            Ok((
-                vec![new_admin.clone()],
-                vec!["address".into()],
-            ))
+            Ok((vec![new_admin.clone()], vec!["address".into()]))
         }
         TokenOperationKind::TransferFrom | TokenOperationKind::Clawback => {
             let _ = decimals;
@@ -390,12 +394,8 @@ mod tests {
 
     #[test]
     fn rejects_unsupported_operation() {
-        let caps = detect_from_spec_json(
-            "C",
-            "testnet",
-            r#"{"functions":[{"name":"transfer"}]}"#,
-        )
-        .unwrap();
+        let caps = detect_from_spec_json("C", "testnet", r#"{"functions":[{"name":"transfer"}]}"#)
+            .unwrap();
         let options = WriteOptions {
             contract_id: "C".into(),
             source_wallet: "alice".into(),

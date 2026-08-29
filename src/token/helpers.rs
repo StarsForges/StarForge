@@ -88,9 +88,9 @@ pub fn default_arg_types(kind: TokenOperationKind) -> Vec<&'static str> {
 pub fn expiration_guidance(current_ledger: u32, expiration: Option<u32>) -> String {
     match expiration {
         None => "no expiration ledger specified".into(),
-        Some(exp) if exp <= current_ledger => format!(
-            "allowance expired at ledger {exp} (current {current_ledger})"
-        ),
+        Some(exp) if exp <= current_ledger => {
+            format!("allowance expired at ledger {exp} (current {current_ledger})")
+        }
         Some(exp) => format!(
             "allowance expires at ledger {exp} ({} ledgers remaining)",
             exp - current_ledger

@@ -78,35 +78,33 @@ impl<'a, T: TokenRpcTransport> BatchExecutor<'a, T> {
             };
             let plan_result = self.plan_entry(entry, &write_opts, &capabilities, decimals);
             match plan_result {
-                Ok(plan) => {
-                    match self.writer.execute_simulate_only(&plan, decimals) {
-                        Ok(receipt) => {
-                            succeeded += 1;
-                            receipts.push(receipt);
-                        }
-                        Err(e) => {
-                            failed += 1;
-                            receipts.push(TokenReceipt {
-                                schema_version: TOKEN_RECEIPT_SCHEMA_VERSION,
-                                operation: entry.operation,
-                                contract_id: entry.contract_id.clone(),
-                                network: manifest.network.clone(),
-                                source_account: entry.source_account.clone(),
-                                tx_hash: None,
-                                ledger: None,
-                                fee_stroops: None,
-                                amount: entry
-                                    .amount_raw
-                                    .map(|raw| TokenAmount::from_raw(raw, decimals)),
-                                status: TokenReceiptStatus::Failed,
-                                simulation: None,
-                                completed_at: Utc::now(),
-                                redacted: false,
-                            });
-                            let _ = e;
-                        }
+                Ok(plan) => match self.writer.execute_simulate_only(&plan, decimals) {
+                    Ok(receipt) => {
+                        succeeded += 1;
+                        receipts.push(receipt);
                     }
-                }
+                    Err(e) => {
+                        failed += 1;
+                        receipts.push(TokenReceipt {
+                            schema_version: TOKEN_RECEIPT_SCHEMA_VERSION,
+                            operation: entry.operation,
+                            contract_id: entry.contract_id.clone(),
+                            network: manifest.network.clone(),
+                            source_account: entry.source_account.clone(),
+                            tx_hash: None,
+                            ledger: None,
+                            fee_stroops: None,
+                            amount: entry
+                                .amount_raw
+                                .map(|raw| TokenAmount::from_raw(raw, decimals)),
+                            status: TokenReceiptStatus::Failed,
+                            simulation: None,
+                            completed_at: Utc::now(),
+                            redacted: false,
+                        });
+                        let _ = e;
+                    }
+                },
                 Err(_) => {
                     skipped += 1;
                     receipts.push(TokenReceipt {
@@ -169,12 +167,10 @@ impl<'a, T: TokenRpcTransport> BatchExecutor<'a, T> {
                 self.writer
                     .plan_mint(options, capabilities, to, &amount_str, decimals)
             }
-            TokenOperationKind::Burn => self.writer.plan_burn(
-                options,
-                capabilities,
-                &amount_str,
-                decimals,
-            ),
+            TokenOperationKind::Burn => {
+                self.writer
+                    .plan_burn(options, capabilities, &amount_str, decimals)
+            }
             _ => anyhow::bail!("batch operation {:?} not supported", entry.operation),
         }
     }
@@ -200,10 +196,14 @@ mod tests {
                     id: "ok".into(),
                     operation: TokenOperationKind::Transfer,
                     contract_id: "CBQHNAXSI55GX2GN6D67GK7BHVPSLJUGZQEU7WJ5LKR5PNUCGLIMAO4A".into(),
-                    source_account: "GDRXMZDQW34QHX6F5U6FFWJZZZDQ4KYWJO65HS4CUT62X7Y7RXYWXE4T".into(),
-                    args: [("to".into(), "GBBO4ZDDZTSM2IUKQYBAST3CFHNPFXECGEFTGWTA3WUYC3IDATK4YALU".into())]
-                        .into_iter()
-                        .collect(),
+                    source_account: "GDRXMZDQW34QHX6F5U6FFWJZZZDQ4KYWJO65HS4CUT62X7Y7RXYWXE4T"
+                        .into(),
+                    args: [(
+                        "to".into(),
+                        "GBBO4ZDDZTSM2IUKQYBAST3CFHNPFXECGEFTGWTA3WUYC3IDATK4YALU".into(),
+                    )]
+                    .into_iter()
+                    .collect(),
                     amount_raw: Some(1_000_000),
                     expiration_ledger: None,
                 },
@@ -211,7 +211,8 @@ mod tests {
                     id: "bad".into(),
                     operation: TokenOperationKind::Mint,
                     contract_id: "CBQHNAXSI55GX2GN6D67GK7BHVPSLJUGZQEU7WJ5LKR5PNUCGLIMAO4A".into(),
-                    source_account: "GDRXMZDQW34QHX6F5U6FFWJZZZDQ4KYWJO65HS4CUT62X7Y7RXYWXE4T".into(),
+                    source_account: "GDRXMZDQW34QHX6F5U6FFWJZZZDQ4KYWJO65HS4CUT62X7Y7RXYWXE4T"
+                        .into(),
                     args: [("to".into(), "G".into())].into_iter().collect(),
                     amount_raw: Some(1),
                     expiration_ledger: None,
