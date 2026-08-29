@@ -17,6 +17,7 @@ pub mod docs;
 pub mod gas;
 pub mod info;
 pub mod inspect;
+pub mod interop;
 pub mod invoke;
 pub mod lint;
 pub mod monitor;
