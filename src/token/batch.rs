@@ -209,11 +209,26 @@ mod tests {
                 },
                 BatchManifestEntry {
                     id: "bad".into(),
-                    operation: TokenOperationKind::Mint,
+                    operation: TokenOperationKind::TransferFrom,
                     contract_id: "CBQHNAXSI55GX2GN6D67GK7BHVPSLJUGZQEU7WJ5LKR5PNUCGLIMAO4A".into(),
                     source_account: "GDRXMZDQW34QHX6F5U6FFWJZZZDQ4KYWJO65HS4CUT62X7Y7RXYWXE4T"
                         .into(),
-                    args: [("to".into(), "G".into())].into_iter().collect(),
+                    args: [
+                        (
+                            "spender".into(),
+                            "GBBO4ZDDZTSM2IUKQYBAST3CFHNPFXECGEFTGWTA3WUYC3IDATK4YALU".into(),
+                        ),
+                        (
+                            "from".into(),
+                            "GDRXMZDQW34QHX6F5U6FFWJZZZDQ4KYWJO65HS4CUT62X7Y7RXYWXE4T".into(),
+                        ),
+                        (
+                            "to".into(),
+                            "GBBO4ZDDZTSM2IUKQYBAST3CFHNPFXECGEFTGWTA3WUYC3IDATK4YALU".into(),
+                        ),
+                    ]
+                    .into_iter()
+                    .collect(),
                     amount_raw: Some(1),
                     expiration_ledger: None,
                 },
