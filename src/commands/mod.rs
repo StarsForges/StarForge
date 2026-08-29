@@ -30,6 +30,7 @@ pub mod query;
 pub mod sep;
 pub mod shell;
 pub mod telemetry;
+pub mod token;
 pub mod template;
 pub mod test;
 pub mod tutorial;

@@ -8,7 +8,7 @@
 )]
 
 mod commands;
-pub use starforge::{compatibility, plugins};
+pub use starforge::{compatibility, plugins, token};
 mod signer_rotation;
 mod utils;
 
@@ -159,6 +159,10 @@ enum Commands {
     #[command(subcommand)]
     Compatibility(commands::compatibility::CompatibilityCommands),
 
+    /// SEP-41-style Soroban token administration and operations
+    #[command(subcommand)]
+    Token(commands::token::TokenCommands),
+
     /// Execute an installed plugin command (e.g. `starforge defi ...`)
     #[command(external_subcommand)]
     External(Vec<String>),
@@ -192,7 +196,8 @@ fn main() {
             if args.format == "json"
     ) || matches!(&cli.command, Commands::Account(cmd) if commands::account::is_machine_readable(cmd))
         || matches!(&cli.command, Commands::Query(cmd) if commands::query::is_machine_readable(cmd))
-        || matches!(&cli.command, Commands::Ai(args) if args.is_machine_readable());
+        || matches!(&cli.command, Commands::Ai(args) if args.is_machine_readable())
+        || matches!(&cli.command, Commands::Token(cmd) if commands::token::is_machine_readable(cmd));
 
     // Initialise structured logging before anything else runs.
     let log_cfg =
@@ -255,6 +260,7 @@ fn main() {
         Commands::Profile(_) => "profile",
         Commands::Anomaly(_) => "anomaly",
         Commands::Compatibility(_) => "compatibility",
+        Commands::Token(_) => "token",
         Commands::External(_) => "external",
     }
     .to_string();
@@ -304,6 +310,7 @@ fn main() {
             .context("Failed to create async runtime")
             .and_then(|rt| rt.block_on(commands::anomaly::handle(cmd))),
         Commands::Compatibility(cmd) => commands::compatibility::handle(cmd),
+        Commands::Token(cmd) => commands::token::handle(cmd),
         Commands::External(args) => handle_external_plugin(args),
     };
     let duration = start.elapsed();
