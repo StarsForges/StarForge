@@ -20,6 +20,7 @@ pub mod performance;
 pub mod preflight;
 pub mod print;
 pub mod profiler;
+pub mod release;
 pub mod repl;
 pub mod sandbox;
 pub mod security_training;

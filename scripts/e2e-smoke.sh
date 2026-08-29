@@ -217,6 +217,56 @@ run_test_with_output \
     '"status": "awaiting_approval"'
 
 echo ""
+echo -e "${BLUE}──────────────────────────────────────────────────────${NC}"
+echo -e "${BLUE}7. Release Command Tests${NC}"
+echo -e "${BLUE}──────────────────────────────────────────────────────${NC}"
+echo ""
+
+# `starforge release` is exercised against a throwaway fixture "project"
+# with a tiny placeholder binary — NOT a copy of this repo's own (100MB+
+# debug) build output, which would make archiving/hashing needlessly slow.
+# The fixture never touches the network — prepare/manifest/sbom/attest/verify
+# are all local-file-only.
+RELEASE_FIXTURE_DIR="$(mktemp -d)"
+RELEASE_STAGING_DIR="$RELEASE_FIXTURE_DIR/staging"
+mkdir -p "$RELEASE_FIXTURE_DIR/target/release"
+echo "placeholder binary bytes for the release smoke test" > "$RELEASE_FIXTURE_DIR/target/release/fixture-app"
+cat > "$RELEASE_FIXTURE_DIR/Cargo.toml" <<'EOF'
+[package]
+name = "fixture-app"
+version = "0.0.1-smoke"
+EOF
+cat > "$RELEASE_FIXTURE_DIR/Cargo.lock" <<'EOF'
+[[package]]
+name = "fixture-app"
+version = "0.0.1-smoke"
+EOF
+cat > "$RELEASE_FIXTURE_DIR/rust-toolchain.toml" <<'EOF'
+[toolchain]
+channel = "1.89.0"
+EOF
+
+RELEASE_ARGS="--repo-root $RELEASE_FIXTURE_DIR --version 0.0.1-smoke"
+
+run_test "release prepare (--skip-build)" \
+    "$STARFORGE release prepare $RELEASE_ARGS --binary-name fixture-app --target native --skip-build --out $RELEASE_STAGING_DIR --source-date-epoch 1700000000"
+
+run_test "release manifest" \
+    "$STARFORGE release manifest $RELEASE_ARGS --staging-root $RELEASE_STAGING_DIR --name fixture-app"
+
+run_test "release sbom" \
+    "$STARFORGE release sbom --repo-root $RELEASE_FIXTURE_DIR --name fixture-app --version 0.0.1-smoke --out $RELEASE_STAGING_DIR/0.0.1-smoke/sbom.json"
+
+run_test "release attest" \
+    "$STARFORGE release attest --dir $RELEASE_STAGING_DIR/0.0.1-smoke --signing-key $RELEASE_FIXTURE_DIR/signing.key --generate-key-if-missing"
+
+run_test_with_output "release verify (passes)" \
+    "$STARFORGE release verify --dir $RELEASE_STAGING_DIR/0.0.1-smoke --format json" \
+    '"ok": true'
+
+rm -rf "$RELEASE_FIXTURE_DIR"
+
+echo ""
 echo -e "${BLUE}═══════════════════════════════════════════════════════${NC}"
 echo -e "${BLUE}  Test Results${NC}"
 echo -e "${BLUE}═══════════════════════════════════════════════════════${NC}"

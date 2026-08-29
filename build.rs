@@ -65,5 +65,12 @@ fn main() {
     let version = String::from_utf8(output.stdout).unwrap();
     println!("cargo:rustc-env=RUSTC_VERSION={}", version.trim());
 
+    // Exposed to `starforge release` so build provenance can record the exact
+    // target triple this binary was compiled for without re-deriving it from
+    // `std::env::consts` (which cannot express e.g. glibc vs musl).
+    if let Ok(target) = env::var("TARGET") {
+        println!("cargo:rustc-env=STARFORGE_TARGET_TRIPLE={}", target);
+    }
+
     println!("cargo:rerun-if-changed=build.rs");
 }
