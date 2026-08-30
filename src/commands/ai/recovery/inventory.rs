@@ -24,9 +24,9 @@ struct Manifest {
 /// (an `S`-prefixed 56-character Base32-subset key).
 fn path_contains_stellar_key(path_str: &str) -> bool {
     // Walk over whitespace / separator-delimited tokens and check each.
-    for token in path_str.split(|c: char| {
-        c.is_whitespace() || c == '/' || c == '\\' || c == '-' || c == '_'
-    }) {
+    for token in
+        path_str.split(|c: char| c.is_whitespace() || c == '/' || c == '\\' || c == '-' || c == '_')
+    {
         if token.len() == 56 && token.starts_with('S') {
             let is_key = token
                 .chars()
@@ -83,7 +83,10 @@ fn make_id(_stem: &str, _kind: &ArtifactKind) -> String {
 /// A `Vec<Artifact>` describing every discovered (or manifest-referenced but
 /// absent) file.  All path strings are redacted via `redact_text`.
 pub fn scan(project_root: &Path, starforge_home: &Path) -> Result<Vec<Artifact>> {
-    let manifests_dir = starforge_home.join("data").join("recovery").join("manifests");
+    let manifests_dir = starforge_home
+        .join("data")
+        .join("recovery")
+        .join("manifests");
 
     // Collect every file under project_root.
     let mut all_files: Vec<PathBuf> = Vec::new();
@@ -262,9 +265,9 @@ pub fn scan(project_root: &Path, starforge_home: &Path) -> Result<Vec<Artifact>>
 mod tests {
     use super::*;
     use std::fs;
-    use tempfile::TempDir;
     #[allow(unused_imports)]
     use std::path::Path;
+    use tempfile::TempDir;
 
     /// Helper: write a file and create its parent directories.
     fn write_file(path: &Path, contents: &[u8]) {
@@ -358,8 +361,7 @@ mod tests {
             "expected digest should be present"
         );
         assert_ne!(
-            wasm_artifact.sha256,
-            wasm_artifact.expected_sha256,
+            wasm_artifact.sha256, wasm_artifact.expected_sha256,
             "digests should differ"
         );
     }

@@ -3,7 +3,7 @@
 use anyhow::Result;
 use chrono::Utc;
 
-use super::model::{RecoveryPlan, RecoveryReport, Recommendation, VerifyResult};
+use super::model::{Recommendation, RecoveryPlan, RecoveryReport, VerifyResult};
 use crate::commands::ai::impact::redactor::redact_text;
 
 /// Build a [`RecoveryReport`] from a plan, optional verify results, and an
@@ -39,7 +39,10 @@ pub fn build(
 pub fn to_markdown(report: &RecoveryReport) -> String {
     let mut out = String::new();
     out.push_str("# StarForge Recovery Report\n\n");
-    out.push_str(&format!("Generated: {}\n\n", report.generated_at.to_rfc3339()));
+    out.push_str(&format!(
+        "Generated: {}\n\n",
+        report.generated_at.to_rfc3339()
+    ));
     out.push_str(&format!(
         "## Risk Assessment\n\n- **Risk Score**: {}\n- **Risk Level**: {}\n\n",
         report.plan.risk_score,
@@ -128,9 +131,18 @@ mod tests {
     #[test]
     fn recommendations_sorted_by_priority_descending() {
         let plan = make_plan(vec![
-            RiskFactor { description: "stale digest mismatch".to_string(), points: 20 },
-            RiskFactor { description: "missing WASM binary".to_string(), points: 30 },
-            RiskFactor { description: "no backup in cadence".to_string(), points: 10 },
+            RiskFactor {
+                description: "stale digest mismatch".to_string(),
+                points: 20,
+            },
+            RiskFactor {
+                description: "missing WASM binary".to_string(),
+                points: 30,
+            },
+            RiskFactor {
+                description: "no backup in cadence".to_string(),
+                points: 10,
+            },
         ]);
         let report = build(&plan, None, None);
         let priorities: Vec<u8> = report.recommendations.iter().map(|r| r.priority).collect();
@@ -144,7 +156,10 @@ mod tests {
         let narrative = format!("Key is {}", secret);
         let report = build(&plan, None, Some(&narrative));
         let stored = report.ai_narrative.unwrap();
-        assert!(!stored.contains(secret), "secret must be redacted in narrative");
+        assert!(
+            !stored.contains(secret),
+            "secret must be redacted in narrative"
+        );
     }
 
     #[test]
@@ -157,9 +172,10 @@ mod tests {
 
     #[test]
     fn to_markdown_contains_risk_level() {
-        let plan = make_plan(vec![
-            RiskFactor { description: "missing WASM binary".to_string(), points: 30 },
-        ]);
+        let plan = make_plan(vec![RiskFactor {
+            description: "missing WASM binary".to_string(),
+            points: 30,
+        }]);
         let report = build(&plan, None, None);
         let md = to_markdown(&report);
         assert!(md.contains("Risk Level"));

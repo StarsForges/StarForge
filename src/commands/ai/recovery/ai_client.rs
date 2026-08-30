@@ -2,7 +2,11 @@
 //! with fully redacted prompts and redacts the response before returning.
 
 use anyhow::Result;
-use async_openai::{config::OpenAIConfig, types::{ChatCompletionRequestMessage, CreateChatCompletionRequest, Role}, Client};
+use async_openai::{
+    config::OpenAIConfig,
+    types::{ChatCompletionRequestMessage, CreateChatCompletionRequest, Role},
+    Client,
+};
 
 use super::model::{RecoveryPlan, RecoveryReport};
 use crate::commands::ai::impact::redactor::redact_text;
@@ -46,8 +50,11 @@ pub async fn request_narrative(
         ..Default::default()
     };
 
-    let response = crate::commands::ai::execute_chat(client, "recovery_narrative", model, request).await?;
-    let raw = response.choices.first()
+    let response =
+        crate::commands::ai::execute_chat(client, "recovery_narrative", model, request).await?;
+    let raw = response
+        .choices
+        .first()
         .and_then(|c| c.message.content.as_deref())
         .unwrap_or("")
         .to_string();
@@ -65,7 +72,12 @@ pub async fn request_remediation(
         "Recovery report: risk_score={}, risk_level={}, recommendations=[{}]",
         report.plan.risk_score,
         report.plan.risk_level.as_str(),
-        report.recommendations.iter().map(|r| r.description.as_str()).collect::<Vec<_>>().join("; ")
+        report
+            .recommendations
+            .iter()
+            .map(|r| r.description.as_str())
+            .collect::<Vec<_>>()
+            .join("; ")
     );
     let prompt = redact_text(&summary);
 
@@ -90,8 +102,11 @@ pub async fn request_remediation(
         ..Default::default()
     };
 
-    let response = crate::commands::ai::execute_chat(client, "recovery_remediation", model, request).await?;
-    let raw = response.choices.first()
+    let response =
+        crate::commands::ai::execute_chat(client, "recovery_remediation", model, request).await?;
+    let raw = response
+        .choices
+        .first()
         .and_then(|c| c.message.content.as_deref())
         .unwrap_or("")
         .to_string();

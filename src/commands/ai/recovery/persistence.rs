@@ -84,9 +84,8 @@ pub fn set_permissions_600(path: &Path) -> Result<()> {
     {
         use std::os::unix::fs::PermissionsExt;
         let perms = std::fs::Permissions::from_mode(0o600);
-        std::fs::set_permissions(path, perms).with_context(|| {
-            format!("Failed to set 0600 permissions on {}", path.display())
-        })?;
+        std::fs::set_permissions(path, perms)
+            .with_context(|| format!("Failed to set 0600 permissions on {}", path.display()))?;
     }
     #[cfg(not(unix))]
     {
@@ -111,9 +110,8 @@ pub fn ensure_dir_700(path: &Path) -> Result<()> {
     {
         use std::os::unix::fs::PermissionsExt;
         let perms = std::fs::Permissions::from_mode(0o700);
-        std::fs::set_permissions(path, perms).with_context(|| {
-            format!("Failed to set 0700 permissions on {}", path.display())
-        })?;
+        std::fs::set_permissions(path, perms)
+            .with_context(|| format!("Failed to set 0700 permissions on {}", path.display()))?;
     }
     #[cfg(not(unix))]
     {
@@ -191,8 +189,8 @@ pub fn load_policy(home: &Path) -> Result<Option<BackupPolicy>> {
 /// permissions to `0600` on Unix.
 pub fn save_policy(home: &Path, policy: &BackupPolicy) -> Result<()> {
     let path = recovery_dir(home)?.join(POLICY_FILE);
-    let bytes = serde_json::to_vec_pretty(policy)
-        .context("Failed to serialize BackupPolicy to JSON")?;
+    let bytes =
+        serde_json::to_vec_pretty(policy).context("Failed to serialize BackupPolicy to JSON")?;
     atomic_write(&path, &bytes)
         .with_context(|| format!("Failed to save policy to {}", path.display()))?;
     Ok(())
@@ -226,8 +224,8 @@ pub fn load_plan(home: &Path) -> Result<Option<RecoveryPlan>> {
 pub fn save_plan(home: &Path, plan: &RecoveryPlan) -> Result<PathBuf> {
     let dir = recovery_dir(home)?;
     let path = dir.join(PLAN_FILE);
-    let bytes = serde_json::to_vec_pretty(plan)
-        .context("Failed to serialize RecoveryPlan to JSON")?;
+    let bytes =
+        serde_json::to_vec_pretty(plan).context("Failed to serialize RecoveryPlan to JSON")?;
     atomic_write(&path, &bytes)
         .with_context(|| format!("Failed to save plan to {}", path.display()))?;
     Ok(path)
@@ -246,13 +244,12 @@ pub fn load_verify_results(home: &Path) -> Result<Option<Vec<VerifyResult>>> {
     let raw_bytes = std::fs::read(&path)
         .with_context(|| format!("Failed to read verify results file {}", path.display()))?;
 
-    let results: Vec<VerifyResult> = serde_json::from_slice(&raw_bytes)
-        .with_context(|| {
-            format!(
-                "Verify results file {} is not valid JSON or has an unexpected shape",
-                path.display()
-            )
-        })?;
+    let results: Vec<VerifyResult> = serde_json::from_slice(&raw_bytes).with_context(|| {
+        format!(
+            "Verify results file {} is not valid JSON or has an unexpected shape",
+            path.display()
+        )
+    })?;
 
     Ok(Some(results))
 }
@@ -287,7 +284,10 @@ mod tests {
 
         atomic_write(&target, b"hello").expect("atomic_write should succeed");
 
-        assert!(target.exists(), "final file should exist after atomic_write");
+        assert!(
+            target.exists(),
+            "final file should exist after atomic_write"
+        );
         assert!(
             !tmp.exists(),
             ".tmp sidecar should be removed after successful rename"
@@ -431,7 +431,7 @@ mod tests {
 
     #[test]
     fn save_and_load_plan_round_trip() {
-        use crate::commands::ai::recovery::model::{RiskLevel, RiskFactor};
+        use crate::commands::ai::recovery::model::{RiskFactor, RiskLevel};
         use chrono::Utc;
 
         let dir = TempDir::new().expect("tempdir");
@@ -513,7 +513,10 @@ mod tests {
         assert!(!expected.exists(), "directory should not exist yet");
 
         recovery_dir(dir.path()).expect("recovery_dir");
-        assert!(expected.exists(), "directory should be created on first use");
+        assert!(
+            expected.exists(),
+            "directory should be created on first use"
+        );
     }
 
     /// The saved policy file should exist inside the recovery dir.
@@ -523,6 +526,9 @@ mod tests {
         save_policy(dir.path(), &BackupPolicy::default()).expect("save_policy");
 
         let expected = dir.path().join("data").join("recovery").join("policy.json");
-        assert!(expected.exists(), "policy.json should exist in recovery dir");
+        assert!(
+            expected.exists(),
+            "policy.json should exist in recovery dir"
+        );
     }
 }

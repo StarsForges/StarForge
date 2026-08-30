@@ -314,7 +314,10 @@ mod tests {
 
     #[test]
     fn backup_policy_default_encryption_is_aes256gcm() {
-        assert_eq!(BackupPolicy::default().encryption, EncryptionMode::Aes256Gcm);
+        assert_eq!(
+            BackupPolicy::default().encryption,
+            EncryptionMode::Aes256Gcm
+        );
     }
 
     #[test]
@@ -420,8 +423,10 @@ mod tests {
 
     #[test]
     fn validate_policy_retention_count_zero_is_err() {
-        let mut policy = BackupPolicy::default();
-        policy.retention_count = 0;
+        let policy = BackupPolicy {
+            retention_count: 0,
+            ..BackupPolicy::default()
+        };
         let err = validate_policy(&policy).unwrap_err();
         assert!(err.to_string().contains("retention_count"));
         assert!(err.to_string().contains('0'.to_string().as_str()));
@@ -429,8 +434,10 @@ mod tests {
 
     #[test]
     fn validate_policy_retention_count_366_is_err() {
-        let mut policy = BackupPolicy::default();
-        policy.retention_count = 366;
+        let policy = BackupPolicy {
+            retention_count: 366,
+            ..BackupPolicy::default()
+        };
         let err = validate_policy(&policy).unwrap_err();
         assert!(err.to_string().contains("retention_count"));
         assert!(err.to_string().contains("366"));
@@ -438,16 +445,20 @@ mod tests {
 
     #[test]
     fn validate_policy_cadence_hours_zero_is_err() {
-        let mut policy = BackupPolicy::default();
-        policy.cadence_hours = 0;
+        let policy = BackupPolicy {
+            cadence_hours: 0,
+            ..BackupPolicy::default()
+        };
         let err = validate_policy(&policy).unwrap_err();
         assert!(err.to_string().contains("cadence_hours"));
     }
 
     #[test]
     fn validate_policy_cadence_hours_8761_is_err() {
-        let mut policy = BackupPolicy::default();
-        policy.cadence_hours = 8761;
+        let policy = BackupPolicy {
+            cadence_hours: 8761,
+            ..BackupPolicy::default()
+        };
         let err = validate_policy(&policy).unwrap_err();
         assert!(err.to_string().contains("cadence_hours"));
         assert!(err.to_string().contains("8761"));
@@ -455,14 +466,19 @@ mod tests {
 
     #[test]
     fn validate_policy_boundary_values_are_ok() {
-        let mut policy = BackupPolicy::default();
-        policy.retention_count = 1;
-        policy.cadence_hours = 1;
-        assert!(validate_policy(&policy).is_ok());
+        let policy1 = BackupPolicy {
+            retention_count: 1,
+            cadence_hours: 1,
+            ..BackupPolicy::default()
+        };
+        assert!(validate_policy(&policy1).is_ok());
 
-        policy.retention_count = 365;
-        policy.cadence_hours = 8760;
-        assert!(validate_policy(&policy).is_ok());
+        let policy2 = BackupPolicy {
+            retention_count: 365,
+            cadence_hours: 8760,
+            ..BackupPolicy::default()
+        };
+        assert!(validate_policy(&policy2).is_ok());
     }
 
     // ── Property 6: Policy field range validation ────────────────────────────
@@ -492,7 +508,7 @@ mod tests {
                         encryption: EncryptionMode::Aes256Gcm,
                         integrity: IntegrityAlgorithm::Sha256,
                     };
-                    if retention_count < 1 || retention_count > 365 {
+                    if !(1..=365).contains(&retention_count) {
                         prop_assert!(
                             validate_policy(&policy).is_err(),
                             "expected Err for retention_count = {}",
@@ -533,7 +549,7 @@ mod tests {
                         encryption: EncryptionMode::Aes256Gcm,
                         integrity: IntegrityAlgorithm::Sha256,
                     };
-                    if cadence_hours < 1 || cadence_hours > 8760 {
+                    if !(1..=8760).contains(&cadence_hours) {
                         prop_assert!(
                             validate_policy(&policy).is_err(),
                             "expected Err for cadence_hours = {}",

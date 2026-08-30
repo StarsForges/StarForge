@@ -1,13 +1,16 @@
 //! Integration tests for the ai-disaster-recovery subsystem.
 //! All tests use tempfile::TempDir — no writes to ~/.starforge/, no network calls.
 
+use chrono::Utc;
 use starforge::commands::ai::recovery::{
     backup::run_backup,
-    model::{Artifact, ArtifactKind, ArtifactStatus, BackupPolicy, EncryptionMode, IntegrityAlgorithm, VerifyStatus},
-    verify::{verify_all, verify_one},
+    model::{
+        Artifact, ArtifactKind, ArtifactStatus, BackupPolicy, EncryptionMode, IntegrityAlgorithm,
+        VerifyStatus,
+    },
     restore_sim::simulate,
+    verify::{verify_all, verify_one},
 };
-use chrono::Utc;
 use tempfile::TempDir;
 
 fn make_artifact(path: &str) -> Artifact {
@@ -97,7 +100,10 @@ fn restore_dry_run_pass() {
     let result = run_backup(&artifacts, &plain_policy(7), &store, "", false).unwrap();
     let archive = std::path::PathBuf::from(&result.archive_path);
     let sim = simulate(&archive, None).unwrap();
-    assert!(sim.simulation_passed, "restore dry-run should pass for valid archive");
+    assert!(
+        sim.simulation_passed,
+        "restore dry-run should pass for valid archive"
+    );
     assert_eq!(sim.artifact_count, 1);
 }
 
@@ -120,7 +126,10 @@ fn restore_dry_run_fail_reports_all_failures() {
 
     assert!(!sim.simulation_passed);
     let failed = sim.validation_results.iter().filter(|v| !v.passed).count();
-    assert_eq!(failed, 2, "all failures must be reported, not just the first");
+    assert_eq!(
+        failed, 2,
+        "all failures must be reported, not just the first"
+    );
 }
 
 // ── retention_enforcement_integration ────────────────────────────────────────
@@ -140,10 +149,20 @@ fn retention_enforcement_integration() {
     let entries: Vec<_> = std::fs::read_dir(&store)
         .unwrap()
         .filter_map(|e| e.ok())
-        .filter(|e| e.path().file_name().and_then(|n| n.to_str()).map(|n| n.ends_with(".tar.gz")).unwrap_or(false))
+        .filter(|e| {
+            e.path()
+                .file_name()
+                .and_then(|n| n.to_str())
+                .map(|n| n.ends_with(".tar.gz"))
+                .unwrap_or(false)
+        })
         .collect();
 
-    assert!(entries.len() <= 2, "expected at most 2 archives, got {}", entries.len());
+    assert!(
+        entries.len() <= 2,
+        "expected at most 2 archives, got {}",
+        entries.len()
+    );
 }
 
 // ── no_archive_overwrite_integration ─────────────────────────────────────────
@@ -168,10 +187,20 @@ fn no_archive_overwrite_integration() {
     let archives: Vec<_> = std::fs::read_dir(&store)
         .unwrap()
         .filter_map(|e| e.ok())
-        .filter(|e| e.path().file_name().and_then(|n| n.to_str()).map(|n| n.ends_with(".tar.gz") || n.ends_with(".tar.gz.1")).unwrap_or(false))
+        .filter(|e| {
+            e.path()
+                .file_name()
+                .and_then(|n| n.to_str())
+                .map(|n| n.ends_with(".tar.gz") || n.ends_with(".tar.gz.1"))
+                .unwrap_or(false)
+        })
         .collect();
 
-    assert_eq!(archives.len(), 2, "two distinct archive files should exist, not one overwritten");
+    assert_eq!(
+        archives.len(),
+        2,
+        "two distinct archive files should exist, not one overwritten"
+    );
 }
 
 // ── verify_all_integration ────────────────────────────────────────────────────
@@ -201,7 +230,11 @@ fn verify_all_all_ok() {
     }
 
     let results = verify_all(&store, None).unwrap();
-    assert_eq!(results.len(), 3, "verify_all should return one result per archive");
+    assert_eq!(
+        results.len(),
+        3,
+        "verify_all should return one result per archive"
+    );
     for r in &results {
         assert_eq!(r.status, VerifyStatus::Ok);
     }

@@ -26,8 +26,8 @@ pub fn simulate(archive: &Path, passphrase: Option<&str>) -> Result<SimulationRe
     let payload_bytes = if kp_path.exists() {
         let kp_bytes = std::fs::read(&kp_path)
             .with_context(|| format!("Failed to read key_params.json for {}", archive.display()))?;
-        let kp: serde_json::Value = serde_json::from_slice(&kp_bytes)
-            .context("Failed to parse key_params.json")?;
+        let kp: serde_json::Value =
+            serde_json::from_slice(&kp_bytes).context("Failed to parse key_params.json")?;
         let salt_b64 = kp
             .get("salt")
             .and_then(|v| v.as_str())
@@ -93,7 +93,9 @@ fn contains_stellar_key(s: &str) -> bool {
     for token in s.split(|c: char| c.is_whitespace() || c == '/' || c == '\\') {
         if token.len() == 56
             && token.starts_with('S')
-            && token.chars().all(|c| c.is_ascii_uppercase() || ('2'..='7').contains(&c))
+            && token
+                .chars()
+                .all(|c| c.is_ascii_uppercase() || ('2'..='7').contains(&c))
         {
             return true;
         }
@@ -199,6 +201,10 @@ mod tests {
             .map(|e| e.path())
             .collect();
 
-        assert_eq!(before.len(), after.len(), "simulate must not write any files");
+        assert_eq!(
+            before.len(),
+            after.len(),
+            "simulate must not write any files"
+        );
     }
 }

@@ -2,9 +2,7 @@
 
 use chrono::{DateTime, Utc};
 
-use super::model::{
-    Artifact, ArtifactKind, ArtifactStatus, BackupPolicy, RiskFactor, RiskLevel,
-};
+use super::model::{Artifact, ArtifactKind, ArtifactStatus, BackupPolicy, RiskFactor, RiskLevel};
 
 /// Compute the offline risk score for the current recovery state.
 ///
@@ -73,8 +71,9 @@ pub fn score_offline(
         .any(|a| a.kind == ArtifactKind::KeyReference);
     if has_key_reference {
         factors.push(RiskFactor {
-            description: "Unencrypted key reference: at least one artifact path contains a key reference"
-                .to_string(),
+            description:
+                "Unencrypted key reference: at least one artifact path contains a key reference"
+                    .to_string(),
             points: 15,
         });
     }
@@ -133,7 +132,10 @@ mod tests {
 
     #[test]
     fn condition_missing_wasm_adds_30() {
-        let artifacts = vec![make_artifact(ArtifactKind::WasmBinary, ArtifactStatus::Missing)];
+        let artifacts = vec![make_artifact(
+            ArtifactKind::WasmBinary,
+            ArtifactStatus::Missing,
+        )];
         let (score, _level, factors) =
             score_offline(&artifacts, &default_policy(), Some(Utc::now()));
         assert_eq!(score, 30);
@@ -143,8 +145,10 @@ mod tests {
 
     #[test]
     fn condition_missing_manifest_adds_25() {
-        let artifacts =
-            vec![make_artifact(ArtifactKind::DeployManifest, ArtifactStatus::Missing)];
+        let artifacts = vec![make_artifact(
+            ArtifactKind::DeployManifest,
+            ArtifactStatus::Missing,
+        )];
         let (score, _level, factors) =
             score_offline(&artifacts, &default_policy(), Some(Utc::now()));
         assert_eq!(score, 25);
@@ -154,7 +158,10 @@ mod tests {
 
     #[test]
     fn condition_stale_artifact_adds_20() {
-        let artifacts = vec![make_artifact(ArtifactKind::WasmBinary, ArtifactStatus::Stale)];
+        let artifacts = vec![make_artifact(
+            ArtifactKind::WasmBinary,
+            ArtifactStatus::Stale,
+        )];
         let (score, _level, factors) =
             score_offline(&artifacts, &default_policy(), Some(Utc::now()));
         assert_eq!(score, 20);
@@ -164,7 +171,10 @@ mod tests {
 
     #[test]
     fn condition_key_reference_adds_15() {
-        let artifacts = vec![make_artifact(ArtifactKind::KeyReference, ArtifactStatus::Present)];
+        let artifacts = vec![make_artifact(
+            ArtifactKind::KeyReference,
+            ArtifactStatus::Present,
+        )];
         let (score, _level, factors) =
             score_offline(&artifacts, &default_policy(), Some(Utc::now()));
         assert_eq!(score, 15);
@@ -277,7 +287,10 @@ mod tests {
 
     #[test]
     fn score_30_is_medium() {
-        let artifacts = vec![make_artifact(ArtifactKind::WasmBinary, ArtifactStatus::Missing)];
+        let artifacts = vec![make_artifact(
+            ArtifactKind::WasmBinary,
+            ArtifactStatus::Missing,
+        )];
         let recent_ts = Utc::now() - Duration::hours(1);
         let (score, level, _) = score_offline(&artifacts, &default_policy(), Some(recent_ts));
         assert_eq!(score, 30);
@@ -390,7 +403,8 @@ mod property_tests {
         prop_oneof![
             Just(None),
             // Recent backup (0–200 hours ago)
-            (0i64..=200i64).prop_map(|hours_ago| Some(Utc::now() - chrono::Duration::hours(hours_ago))),
+            (0i64..=200i64)
+                .prop_map(|hours_ago| Some(Utc::now() - chrono::Duration::hours(hours_ago))),
         ]
     }
 

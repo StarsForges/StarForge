@@ -60,10 +60,7 @@ pub fn run_backup(
         for artifact in artifacts {
             println!("  {}", artifact.path);
         }
-        println!(
-            "Expected archive path: {}",
-            expected_archive_path.display()
-        );
+        println!("Expected archive path: {}", expected_archive_path.display());
         return Ok(BackupResult {
             archive_path: expected_archive_path.to_string_lossy().to_string(),
             artifact_count: 0,
@@ -74,12 +71,16 @@ pub fn run_backup(
     }
 
     // Ensure the store directory exists.
-    std::fs::create_dir_all(store)
-        .with_context(|| format!("Failed to create backup store directory {}", store.display()))?;
+    std::fs::create_dir_all(store).with_context(|| {
+        format!(
+            "Failed to create backup store directory {}",
+            store.display()
+        )
+    })?;
 
     // Serialize artifacts to JSON bytes (used as the archive payload).
-    let archive_bytes = serde_json::to_vec(artifacts)
-        .context("Failed to serialize artifacts to JSON")?;
+    let archive_bytes =
+        serde_json::to_vec(artifacts).context("Failed to serialize artifacts to JSON")?;
 
     // Encrypt if requested.
     let (final_bytes, maybe_salt) = if policy.encryption == EncryptionMode::Aes256Gcm {
@@ -174,12 +175,8 @@ pub fn enforce_retention(store: &Path, retain: usize) -> Result<()> {
     // Delete from the front (oldest) until we are within the limit.
     while archives.len() > retain {
         let oldest = archives.remove(0);
-        std::fs::remove_file(&oldest).with_context(|| {
-            format!(
-                "Failed to delete old backup archive {}",
-                oldest.display()
-            )
-        })?;
+        std::fs::remove_file(&oldest)
+            .with_context(|| format!("Failed to delete old backup archive {}", oldest.display()))?;
         // Best-effort removal of the accompanying sidecars.
         let _ = std::fs::remove_file(sha256_sidecar_path(&oldest));
         let _ = std::fs::remove_file(sidecar_path(&oldest, "key_params.json"));
@@ -227,12 +224,8 @@ fn list_archives(store: &Path) -> Result<Vec<PathBuf>> {
 
     let mut archives = Vec::new();
     for entry in entries {
-        let entry = entry.with_context(|| {
-            format!(
-                "Failed to read directory entry in {}",
-                store.display()
-            )
-        })?;
+        let entry = entry
+            .with_context(|| format!("Failed to read directory entry in {}", store.display()))?;
         let path = entry.path();
         if path.extension().and_then(|s| s.to_str()) == Some("gz")
             && path
@@ -296,8 +289,8 @@ mod tests {
         let artifacts = vec![make_artifact("/project/contract.wasm")];
         let policy = make_policy(EncryptionMode::None, 7);
 
-        let result = run_backup(&artifacts, &policy, &store, "", true)
-            .expect("dry_run should succeed");
+        let result =
+            run_backup(&artifacts, &policy, &store, "", true).expect("dry_run should succeed");
 
         // No files should have been written.
         let file_count = std::fs::read_dir(&store)
@@ -327,8 +320,8 @@ mod tests {
         ];
         let policy = make_policy(EncryptionMode::None, 7);
 
-        let result = run_backup(&artifacts, &policy, &store, "", false)
-            .expect("backup should succeed");
+        let result =
+            run_backup(&artifacts, &policy, &store, "", false).expect("backup should succeed");
 
         // Archive should exist.
         let archive = PathBuf::from(&result.archive_path);
@@ -348,7 +341,10 @@ mod tests {
 
         // No .tmp should remain.
         let tmp = tmp_path(&archive);
-        assert!(!tmp.exists(), "no .tmp should remain after successful backup");
+        assert!(
+            !tmp.exists(),
+            "no .tmp should remain after successful backup"
+        );
     }
 
     /// A successful encrypted backup writes the archive, .sha256, and
@@ -374,7 +370,10 @@ mod tests {
         // Parse and check it has a "salt" field.
         let kp: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(&key_params).unwrap()).unwrap();
-        assert!(kp.get("salt").is_some(), "key_params.json must contain 'salt'");
+        assert!(
+            kp.get("salt").is_some(),
+            "key_params.json must contain 'salt'"
+        );
     }
 
     // ── retention enforcement ─────────────────────────────────────────────────
@@ -387,7 +386,7 @@ mod tests {
         let store = dir.path().join("backups");
         std::fs::create_dir_all(&store).unwrap();
         let policy = make_policy(EncryptionMode::None, 3);
-        let _artifacts = vec![make_artifact("/project/contract.wasm")];
+        let _artifacts = [make_artifact("/project/contract.wasm")];
 
         // Write 4 backups (N+1 where N=3). Inject a small sleep-like delay via
         // unique file names using an index suffix to guarantee ordering.
@@ -441,8 +440,7 @@ mod tests {
 
         // Run 3 backups — retention_count=2 so only 2 should remain.
         for _ in 0..3 {
-            run_backup(&artifacts, &policy, &store, "", false)
-                .expect("backup should succeed");
+            run_backup(&artifacts, &policy, &store, "", false).expect("backup should succeed");
         }
 
         let archives = list_archives(&store).unwrap();
@@ -467,8 +465,7 @@ mod tests {
         std::fs::create_dir_all(&store).unwrap();
 
         // Make the store directory read-only so writes will fail.
-        std::fs::set_permissions(&store, std::fs::Permissions::from_mode(0o500))
-            .expect("chmod ro");
+        std::fs::set_permissions(&store, std::fs::Permissions::from_mode(0o500)).expect("chmod ro");
 
         let artifacts = vec![make_artifact("/project/contract.wasm")];
         let policy = make_policy(EncryptionMode::None, 7);
@@ -476,8 +473,7 @@ mod tests {
         let result = run_backup(&artifacts, &policy, &store, "", false);
 
         // Restore permissions so TempDir can clean up.
-        std::fs::set_permissions(&store, std::fs::Permissions::from_mode(0o700))
-            .expect("chmod rw");
+        std::fs::set_permissions(&store, std::fs::Permissions::from_mode(0o700)).expect("chmod rw");
 
         assert!(result.is_err(), "write to read-only dir should fail");
 
@@ -485,13 +481,12 @@ mod tests {
         let tmp_count = std::fs::read_dir(&store)
             .unwrap()
             .filter_map(|e| e.ok())
-            .filter(|e| {
-                e.path()
-                    .to_string_lossy()
-                    .ends_with(".tmp")
-            })
+            .filter(|e| e.path().to_string_lossy().ends_with(".tmp"))
             .count();
-        assert_eq!(tmp_count, 0, "no .tmp files should remain after a failed write");
+        assert_eq!(
+            tmp_count, 0,
+            "no .tmp files should remain after a failed write"
+        );
     }
 
     // ── list_archives ─────────────────────────────────────────────────────────

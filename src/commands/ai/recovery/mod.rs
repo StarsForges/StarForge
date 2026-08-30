@@ -108,20 +108,47 @@ pub enum RecoveryCommands {
 pub async fn handle(cmd: RecoveryCommands) -> Result<()> {
     match cmd {
         RecoveryCommands::Plan {
-            init_policy, network, format, output, deterministic, model, fail_on,
-        } => cmd_plan(init_policy, &network, &format, output.as_deref(), deterministic, &model, fail_on.as_deref()).await,
-        RecoveryCommands::Backup { network: _, dry_run, format, yes } => {
-            cmd_backup(dry_run, &format, yes).await
+            init_policy,
+            network,
+            format,
+            output,
+            deterministic,
+            model,
+            fail_on,
+        } => {
+            cmd_plan(
+                init_policy,
+                &network,
+                &format,
+                output.as_deref(),
+                deterministic,
+                &model,
+                fail_on.as_deref(),
+            )
+            .await
         }
-        RecoveryCommands::Verify { archive, fail_on_any, format } => {
-            cmd_verify(archive.as_deref(), fail_on_any, &format)
-        }
-        RecoveryCommands::RestoreDryRun { archive, format, fail_on_warning } => {
-            cmd_restore_dry_run(archive.as_deref(), &format, fail_on_warning)
-        }
-        RecoveryCommands::Report { format, output, deterministic, model } => {
-            cmd_report(&format, output.as_deref(), deterministic, &model).await
-        }
+        RecoveryCommands::Backup {
+            network: _,
+            dry_run,
+            format,
+            yes,
+        } => cmd_backup(dry_run, &format, yes).await,
+        RecoveryCommands::Verify {
+            archive,
+            fail_on_any,
+            format,
+        } => cmd_verify(archive.as_deref(), fail_on_any, &format),
+        RecoveryCommands::RestoreDryRun {
+            archive,
+            format,
+            fail_on_warning,
+        } => cmd_restore_dry_run(archive.as_deref(), &format, fail_on_warning),
+        RecoveryCommands::Report {
+            format,
+            output,
+            deterministic,
+            model,
+        } => cmd_report(&format, output.as_deref(), deterministic, &model).await,
     }
 }
 
@@ -138,11 +165,18 @@ fn backup_store(home: &Path) -> PathBuf {
 }
 
 fn latest_archive(store: &Path) -> Option<PathBuf> {
-    let Ok(entries) = std::fs::read_dir(store) else { return None; };
+    let Ok(entries) = std::fs::read_dir(store) else {
+        return None;
+    };
     let mut archives: Vec<PathBuf> = entries
         .filter_map(|e| e.ok())
         .map(|e| e.path())
-        .filter(|p| p.file_name().and_then(|n| n.to_str()).map(|n| n.ends_with(".tar.gz")).unwrap_or(false))
+        .filter(|p| {
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .map(|n| n.ends_with(".tar.gz"))
+                .unwrap_or(false)
+        })
         .collect();
     archives.sort();
     archives.into_iter().last()
@@ -170,13 +204,11 @@ async fn cmd_plan(
 ) -> Result<()> {
     let home = starforge_home();
 
-    if init_policy {
-        if persistence::load_policy(&home)?.is_none() {
-            persistence::save_policy(&home, &BackupPolicy::default())
-                .context("Failed to write default policy")?;
-            if format != "json" {
-                eprintln!("Wrote default backup policy to ~/.starforge/data/recovery/policy.json");
-            }
+    if init_policy && persistence::load_policy(&home)?.is_none() {
+        persistence::save_policy(&home, &BackupPolicy::default())
+            .context("Failed to write default policy")?;
+        if format != "json" {
+            eprintln!("Wrote default backup policy to ~/.starforge/data/recovery/policy.json");
         }
     }
 
@@ -187,14 +219,14 @@ async fn cmd_plan(
     if format != "json" {
         eprintln!("Scanning artifacts...");
     }
-    let artifacts = inventory::scan(&project_root, &home)
-        .context("Artifact inventory failed")?;
+    let artifacts = inventory::scan(&project_root, &home).context("Artifact inventory failed")?;
 
     let store = backup_store(&home);
     let last_backup_ts = latest_archive(&store).and_then(|p| {
         p.metadata().ok().and_then(|m| m.modified().ok()).map(|t| {
             let d = t.duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
-            chrono::DateTime::<chrono::Utc>::from_timestamp(d.as_secs() as i64, 0).unwrap_or_else(chrono::Utc::now)
+            chrono::DateTime::<chrono::Utc>::from_timestamp(d.as_secs() as i64, 0)
+                .unwrap_or_else(chrono::Utc::now)
         })
     });
 
@@ -203,22 +235,33 @@ async fn cmd_plan(
 
     let mut ai_narrative: Option<String> = None;
     if !deterministic {
-        if let Ok(api_key) = std::env::var("OPENAI_API_KEY").or_else(|_| std::env::var("STARFORGE_AI_API_KEY")) {
+        if let Ok(api_key) =
+            std::env::var("OPENAI_API_KEY").or_else(|_| std::env::var("STARFORGE_AI_API_KEY"))
+        {
             let client = async_openai::Client::with_config(
                 async_openai::config::OpenAIConfig::new().with_api_key(api_key),
             );
-            match ai_client::request_narrative(&client, &model::RecoveryPlan {
-                schema_version: 1,
-                generated_at: chrono::Utc::now(),
-                network: network.to_string(),
-                artifacts: artifacts.clone(),
-                risk_score,
-                risk_level: risk_level.clone(),
-                risk_factors: risk_factors.clone(),
-                ai_narrative: None,
-            }, model).await {
+            match ai_client::request_narrative(
+                &client,
+                &model::RecoveryPlan {
+                    schema_version: 1,
+                    generated_at: chrono::Utc::now(),
+                    network: network.to_string(),
+                    artifacts: artifacts.clone(),
+                    risk_score,
+                    risk_level: risk_level.clone(),
+                    risk_factors: risk_factors.clone(),
+                    ai_narrative: None,
+                },
+                model,
+            )
+            .await
+            {
                 Ok(n) => ai_narrative = Some(n),
-                Err(e) => eprintln!("warning: AI scoring unavailable: {}", redact_text(&e.to_string())),
+                Err(e) => eprintln!(
+                    "warning: AI scoring unavailable: {}",
+                    redact_text(&e.to_string())
+                ),
             }
         }
     }
@@ -242,7 +285,11 @@ async fn cmd_plan(
         println!("Recovery Plan");
         println!("  Network:     {}", plan.network);
         println!("  Artifacts:   {}", plan.artifacts.len());
-        println!("  Risk Score:  {} ({})", plan.risk_score, plan.risk_level.as_str());
+        println!(
+            "  Risk Score:  {} ({})",
+            plan.risk_score,
+            plan.risk_level.as_str()
+        );
         for f in &plan.risk_factors {
             println!("    - {} (+{})", f.description, f.points);
         }
@@ -261,7 +308,11 @@ async fn cmd_plan(
     if let Some(level_str) = fail_on {
         let threshold = risk_level_from_str(level_str);
         if risk_level >= threshold {
-            eprintln!("Risk level '{}' meets or exceeds threshold '{}'", risk_level.as_str(), level_str);
+            eprintln!(
+                "Risk level '{}' meets or exceeds threshold '{}'",
+                risk_level.as_str(),
+                level_str
+            );
             std::process::exit(1);
         }
     }
@@ -353,7 +404,14 @@ fn cmd_restore_dry_run(archive: Option<&Path>, format: &str, fail_on_warning: bo
     if format == "json" {
         println!("{}", serde_json::to_string_pretty(&sim)?);
     } else {
-        println!("Restore Dry-Run: {}", if sim.simulation_passed { "PASSED" } else { "FAILED" });
+        println!(
+            "Restore Dry-Run: {}",
+            if sim.simulation_passed {
+                "PASSED"
+            } else {
+                "FAILED"
+            }
+        );
         println!("  Archive:    {}", sim.archive_path);
         println!("  Artifacts:  {}", sim.artifact_count);
         println!("  Est. time:  {}ms", sim.simulated_restore_duration_ms);
@@ -376,24 +434,35 @@ fn cmd_restore_dry_run(archive: Option<&Path>, format: &str, fail_on_warning: bo
 
 // ── report ────────────────────────────────────────────────────────────────────
 
-async fn cmd_report(format: &str, output: Option<&Path>, deterministic: bool, model: &str) -> Result<()> {
+async fn cmd_report(
+    format: &str,
+    output: Option<&Path>,
+    deterministic: bool,
+    model: &str,
+) -> Result<()> {
     let home = starforge_home();
 
-    let plan = persistence::load_plan(&home)?
-        .ok_or_else(|| anyhow::anyhow!("No recovery plan found. Run `starforge ai recovery plan` first."))?;
+    let plan = persistence::load_plan(&home)?.ok_or_else(|| {
+        anyhow::anyhow!("No recovery plan found. Run `starforge ai recovery plan` first.")
+    })?;
 
     let verify_results = persistence::load_verify_results(&home)?;
 
     let mut ai_narrative: Option<String> = None;
     if !deterministic {
-        if let Ok(api_key) = std::env::var("OPENAI_API_KEY").or_else(|_| std::env::var("STARFORGE_AI_API_KEY")) {
+        if let Ok(api_key) =
+            std::env::var("OPENAI_API_KEY").or_else(|_| std::env::var("STARFORGE_AI_API_KEY"))
+        {
             let client = async_openai::Client::with_config(
                 async_openai::config::OpenAIConfig::new().with_api_key(api_key),
             );
             let tmp_report = report::build(&plan, verify_results.as_deref(), None);
             match ai_client::request_remediation(&client, &tmp_report, model).await {
                 Ok(n) => ai_narrative = Some(n),
-                Err(e) => eprintln!("warning: AI narrative unavailable: {}", redact_text(&e.to_string())),
+                Err(e) => eprintln!(
+                    "warning: AI narrative unavailable: {}",
+                    redact_text(&e.to_string())
+                ),
             }
         }
     }

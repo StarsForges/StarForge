@@ -197,9 +197,7 @@ pub fn migrate_report(mut raw: Value) -> Result<RecoveryReport> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::commands::ai::recovery::model::{
-        EncryptionMode, IntegrityAlgorithm, RiskLevel,
-    };
+    use crate::commands::ai::recovery::model::{EncryptionMode, IntegrityAlgorithm, RiskLevel};
     use chrono::Utc;
 
     // ── Helper: build minimal v1 BackupPolicy JSON ────────────────────────────
@@ -322,8 +320,14 @@ mod tests {
             "schema_version should be bumped to current after migration"
         );
         // All original v0 fields must survive the migration without loss.
-        assert_eq!(policy.cadence_hours, 48, "cadence_hours field must not be lost");
-        assert_eq!(policy.retention_count, 14, "retention_count field must not be lost");
+        assert_eq!(
+            policy.cadence_hours, 48,
+            "cadence_hours field must not be lost"
+        );
+        assert_eq!(
+            policy.retention_count, 14,
+            "retention_count field must not be lost"
+        );
         assert_eq!(
             policy.encryption,
             EncryptionMode::Aes256Gcm,
@@ -387,7 +391,10 @@ mod tests {
             RiskLevel::Low,
             "risk_level field must not be lost"
         );
-        assert!(plan.artifacts.is_empty(), "artifacts field must not be lost");
+        assert!(
+            plan.artifacts.is_empty(),
+            "artifacts field must not be lost"
+        );
     }
 
     // ── migrate_report ────────────────────────────────────────────────────────

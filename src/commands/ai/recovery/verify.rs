@@ -76,25 +76,27 @@ pub fn verify_one(archive: &Path, passphrase: Option<&str>) -> Result<VerifyResu
                     key_params_path.display()
                 )
             })?;
-            let kp: serde_json::Value =
-                serde_json::from_slice(&kp_bytes).with_context(|| {
-                    format!("key_params.json is not valid JSON: {}", key_params_path.display())
-                })?;
+            let kp: serde_json::Value = serde_json::from_slice(&kp_bytes).with_context(|| {
+                format!(
+                    "key_params.json is not valid JSON: {}",
+                    key_params_path.display()
+                )
+            })?;
 
-            let salt_b64 = kp
-                .get("salt")
-                .and_then(|v| v.as_str())
-                .with_context(|| {
-                    format!(
-                        "key_params.json missing 'salt' field: {}",
-                        key_params_path.display()
-                    )
-                })?;
+            let salt_b64 = kp.get("salt").and_then(|v| v.as_str()).with_context(|| {
+                format!(
+                    "key_params.json missing 'salt' field: {}",
+                    key_params_path.display()
+                )
+            })?;
 
             let salt = base64::engine::general_purpose::STANDARD
                 .decode(salt_b64)
                 .with_context(|| {
-                    format!("Failed to base64-decode salt from {}", key_params_path.display())
+                    format!(
+                        "Failed to base64-decode salt from {}",
+                        key_params_path.display()
+                    )
                 })?;
 
             // Attempt decryption — failure means wrong passphrase or corruption.
@@ -143,9 +145,8 @@ pub fn verify_all(store: &Path, passphrase: Option<&str>) -> Result<Vec<VerifyRe
 
     let mut results = Vec::with_capacity(archives.len());
     for archive in archives {
-        let result = verify_one(&archive, passphrase).with_context(|| {
-            format!("Failed to verify archive {}", archive.display())
-        })?;
+        let result = verify_one(&archive, passphrase)
+            .with_context(|| format!("Failed to verify archive {}", archive.display()))?;
         results.push(result);
     }
     Ok(results)
@@ -185,9 +186,8 @@ fn list_archives(store: &Path) -> Result<Vec<PathBuf>> {
 
     let mut archives = Vec::new();
     for entry in entries {
-        let entry = entry.with_context(|| {
-            format!("Failed to read directory entry in {}", store.display())
-        })?;
+        let entry = entry
+            .with_context(|| format!("Failed to read directory entry in {}", store.display()))?;
         let path = entry.path();
         if path
             .file_name()
@@ -251,8 +251,14 @@ mod tests {
         let result = verify_one(&archive, None).unwrap();
 
         assert_eq!(result.status, VerifyStatus::Corrupted);
-        assert!(result.expected_digest.is_some(), "expected_digest should be set");
-        assert!(result.actual_digest.is_some(), "actual_digest should be set");
+        assert!(
+            result.expected_digest.is_some(),
+            "expected_digest should be set"
+        );
+        assert!(
+            result.actual_digest.is_some(),
+            "actual_digest should be set"
+        );
         assert_ne!(
             result.expected_digest, result.actual_digest,
             "digests should differ for corrupted archive"
@@ -403,7 +409,10 @@ mod tests {
         let results = verify_all(dir.path(), None).unwrap();
         assert_eq!(results.len(), 2);
 
-        let ok_count = results.iter().filter(|r| r.status == VerifyStatus::Ok).count();
+        let ok_count = results
+            .iter()
+            .filter(|r| r.status == VerifyStatus::Ok)
+            .count();
         let corrupted_count = results
             .iter()
             .filter(|r| r.status == VerifyStatus::Corrupted)

@@ -7,8 +7,8 @@
     clippy::unnecessary_lazy_evaluations
 )]
 
-pub mod compatibility;
 pub mod commands;
+pub mod compatibility;
 pub mod interop;
 pub mod plugins;
 pub mod signer_rotation;

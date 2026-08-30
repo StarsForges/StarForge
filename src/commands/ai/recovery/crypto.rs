@@ -80,9 +80,9 @@ pub fn decrypt(ciphertext_with_nonce: &[u8], passphrase: &str, salt: &[u8]) -> R
     let key = Key::<Aes256Gcm>::from_slice(&key_bytes);
 
     let cipher = Aes256Gcm::new(key);
-    let plaintext = cipher
-        .decrypt(nonce, ciphertext)
-        .map_err(|_| anyhow::anyhow!("AES-256-GCM decryption failed: wrong passphrase or corrupted data"))?;
+    let plaintext = cipher.decrypt(nonce, ciphertext).map_err(|_| {
+        anyhow::anyhow!("AES-256-GCM decryption failed: wrong passphrase or corrupted data")
+    })?;
 
     Ok(plaintext)
 }
