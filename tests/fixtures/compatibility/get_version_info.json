@@ -1,0 +1,9 @@
+{
+  "jsonrpc": "2.0",
+  "id": 5,
+  "result": {
+    "version": "22.1.0-fixture",
+    "commitHash": "fixture-commit",
+    "maxSorobanTransactionSetSize": 100
+  }
+}

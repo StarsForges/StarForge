@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "network": "testnet",
+  "decimals": 7,
+  "created_at": "2026-08-29T00:00:00Z",
+  "entries": [
+    {
+      "id": "transfer-1",
+      "operation": "transfer",
+      "contract_id": "CBQHNAXSI55GX2GN6D67GK7BHVPSLJUGZQEU7WJ5LKR5PNUCGLIMAO4A",
+      "source_account": "GDRXMZDQW34QHX6F5U6FFWJZZZDQ4KYWJO65HS4CUT62X7Y7RXYWXE4T",
+      "args": {
+        "to": "GBBO4ZDDZTSM2IUKQYBAST3CFHNPFXECGEFTGWTA3WUYC3IDATK4YALU"
+      },
+      "amount_raw": 1000000,
+      "expiration_ledger": null
+    }
+  ]
+}

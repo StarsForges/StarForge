@@ -1,0 +1,17 @@
+{
+  "functions": [
+    {"name": "name"},
+    {"name": "symbol"},
+    {"name": "decimals"},
+    {"name": "balance"},
+    {"name": "transfer"},
+    {"name": "transfer_from"},
+    {"name": "approve"},
+    {"name": "allowance"},
+    {"name": "mint"},
+    {"name": "burn"},
+    {"name": "clawback"},
+    {"name": "set_admin"},
+    {"name": "set_authorized"}
+  ]
+}

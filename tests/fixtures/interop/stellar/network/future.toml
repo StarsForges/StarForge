@@ -1,0 +1,3 @@
+horizon_url = "https://horizon-future.example.org"
+rpc_url = "https://rpc-future.example.org"
+network_passphrase = "Future Test Network"
