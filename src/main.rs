@@ -164,6 +164,10 @@ enum Commands {
     #[command(subcommand)]
     Release(commands::release::ReleaseCommands),
 
+    /// Rules-based notification router with deduplication and delivery guarantees
+    #[command(subcommand)]
+    Notify(commands::notify::NotifyCommands),
+
     /// Bidirectional interoperability with external Stellar tooling
     #[command(subcommand)]
     Interop(commands::interop::InteropCommands),
@@ -272,6 +276,7 @@ fn main() {
         Commands::Anomaly(_) => "anomaly",
         Commands::Compatibility(_) => "compatibility",
         Commands::Release(_) => "release",
+        Commands::Notify(_) => "notify",
         Commands::Interop(_) => "interop",
         Commands::Token(_) => "token",
         Commands::External(_) => "external",
@@ -324,6 +329,7 @@ fn main() {
             .and_then(|rt| rt.block_on(commands::anomaly::handle(cmd))),
         Commands::Compatibility(cmd) => commands::compatibility::handle(cmd),
         Commands::Release(cmd) => commands::release::handle(cmd),
+        Commands::Notify(cmd) => commands::notify::handle(cmd),
         Commands::Interop(cmd) => commands::interop::handle(cmd),
         Commands::Token(cmd) => commands::token::handle(cmd),
         Commands::External(args) => handle_external_plugin(args),
