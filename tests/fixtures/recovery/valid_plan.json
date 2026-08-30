@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "generated_at": "2024-01-01T00:00:00Z",
+  "network": "testnet",
+  "artifacts": [
+    {
+      "id": "aaaaaaaa-0000-0000-0000-000000000001",
+      "kind": "wasm_binary",
+      "path": "/project/contract.wasm",
+      "status": "present",
+      "sha256": "abc123",
+      "expected_sha256": "abc123",
+      "size_bytes": 1024,
+      "last_modified": "2024-01-01T00:00:00Z"
+    },
+    {
+      "id": "aaaaaaaa-0000-0000-0000-000000000002",
+      "kind": "deploy_manifest",
+      "path": "/project/contract.deploy.json",
+      "status": "stale",
+      "sha256": "def456",
+      "expected_sha256": "abc123",
+      "size_bytes": 256,
+      "last_modified": "2024-01-01T00:00:00Z"
+    }
+  ],
+  "risk_score": 20,
+  "risk_level": "low",
+  "risk_factors": [
+    { "description": "Stale digest mismatch", "points": 20 }
+  ],
+  "ai_narrative": null
+}

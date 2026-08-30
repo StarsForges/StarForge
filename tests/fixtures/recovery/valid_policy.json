@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "cadence_hours": 24,
+  "retention_count": 7,
+  "encryption": "aes256-gcm",
+  "integrity": "sha256"
+}

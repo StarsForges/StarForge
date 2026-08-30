@@ -8,6 +8,7 @@
 )]
 
 pub mod compatibility;
+pub mod commands;
 pub mod interop;
 pub mod plugins;
 pub mod signer_rotation;
