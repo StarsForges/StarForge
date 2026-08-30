@@ -176,6 +176,10 @@ enum Commands {
     #[command(subcommand)]
     Token(commands::token::TokenCommands),
 
+    /// Stellar governance operations toolkit for proposal-to-execution workflows
+    #[command(subcommand)]
+    Governance(commands::governance::GovernanceCommands),
+
     /// Execute an installed plugin command (e.g. `starforge defi ...`)
     #[command(external_subcommand)]
     External(Vec<String>),
@@ -279,6 +283,7 @@ fn main() {
         Commands::Notify(_) => "notify",
         Commands::Interop(_) => "interop",
         Commands::Token(_) => "token",
+        Commands::Governance(_) => "governance",
         Commands::External(_) => "external",
     }
     .to_string();
@@ -332,6 +337,7 @@ fn main() {
         Commands::Notify(cmd) => commands::notify::handle(cmd),
         Commands::Interop(cmd) => commands::interop::handle(cmd),
         Commands::Token(cmd) => commands::token::handle(cmd),
+        Commands::Governance(cmd) => commands::governance::handle(cmd),
         Commands::External(args) => handle_external_plugin(args),
     };
     let duration = start.elapsed();
