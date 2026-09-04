@@ -926,8 +926,7 @@ fn dapp_readme(name: &str) -> String {
     format!(
         r#"# {name}
 
-A Stellar dApp scaffolded with [starforge](https://github.com/stellar/starforge).
-A Stellar dApp scaffolded with [starforge](https://github.com/YOUR_USERNAME/starforge).
+A Stellar dApp scaffolded with [starforge](https://github.com/StarsForges/StarForge).
 
 ## Getting Started
 
@@ -943,7 +942,7 @@ fn readme(name: &str, template: &str, source: &str) -> String {
     format!(
         r#"# {name}
 
-A Soroban smart contract scaffolded with [starforge](https://github.com/stellar/starforge).
+A Soroban smart contract scaffolded with [starforge](https://github.com/StarsForges/StarForge).
 
 ## Build
 

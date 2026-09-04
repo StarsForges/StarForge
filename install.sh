@@ -2,7 +2,7 @@
 set -e
 
 # Basic install script for starforge
-REPO="Josetic224/StarForge"
+REPO="StarsForges/StarForge"
 
 # Determine OS and Arch
 OS="$(uname -s | tr '[:upper:]' '[:lower:]')"

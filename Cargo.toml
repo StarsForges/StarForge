@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 description = "A developer productivity CLI for Stellar and Soroban workflows"
 license = "MIT"
-repository = "https://github.com/YOUR_USERNAME/starforge"
+repository = "https://github.com/StarsForges/StarForge"
 keywords = ["stellar", "soroban", "blockchain", "cli", "web3"]
 
 [[bin]]
