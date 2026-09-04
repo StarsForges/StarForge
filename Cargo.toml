@@ -72,6 +72,7 @@ criterion = "0.5.1"
 tempfile = "3.8"
 mockito = "1.2"
 stellar-xdr = { version = "22", features = ["std"] }
+proptest = "1.4"
 
 [[bench]]
 name = "benchmarks"

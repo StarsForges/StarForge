@@ -1,0 +1,17 @@
+{
+  "id": "chatcmpl-test",
+  "object": "chat.completion",
+  "created": 1704067200,
+  "model": "gpt-4",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "Your deployment has a stale artifact. Recommend running a fresh backup and verifying all manifests are up to date."
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": { "prompt_tokens": 50, "completion_tokens": 30, "total_tokens": 80 }
+}

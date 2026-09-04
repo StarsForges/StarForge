@@ -1,5 +1,6 @@
 pub mod assistant;
 pub mod impact;
+pub mod recovery;
 mod security_training;
 mod telemetry;
 
@@ -106,6 +107,11 @@ enum AiCommands {
     /// Interactive AI security training: lessons, quizzes, and progress tracking
     #[command(subcommand)]
     SecurityTraining(security_training::SecurityTrainingCommands),
+    /// AI-assisted disaster recovery: plan, backup, verify, restore, report
+    Recovery {
+        #[command(subcommand)]
+        cmd: recovery::RecoveryCommands,
+    },
     /// Analyze social and economic impact of a Soroban contract
     Impact {
         /// Path to the contract metadata or WASM/Rust source file
@@ -140,6 +146,7 @@ pub async fn handle(args: AiArgs) -> Result<()> {
         AiCommands::Assistant(command) => return assistant::handle(command).await,
         AiCommands::Telemetry(cmd) => return telemetry::handle(cmd),
         AiCommands::SecurityTraining(cmd) => return security_training::handle(cmd),
+        AiCommands::Recovery { cmd } => return recovery::handle(cmd).await,
         AiCommands::Impact {
             file,
             profile,
@@ -194,6 +201,7 @@ pub async fn handle(args: AiArgs) -> Result<()> {
         AiCommands::Assistant(_)
         | AiCommands::Telemetry(_)
         | AiCommands::SecurityTraining(_)
+        | AiCommands::Recovery { .. }
         | AiCommands::Impact { .. } => {
             unreachable!()
         }
