@@ -40,3 +40,4 @@ pub mod tutorial;
 pub mod tx;
 pub mod upgrade;
 pub mod wallet;
+pub mod governance;
