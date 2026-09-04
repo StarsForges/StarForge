@@ -1,6 +1,5 @@
-use super::manifest::{ProposalManifest, ExecutionCondition, GovernanceOperation};
-use anyhow::{Result, bail, Context};
-use chrono::Utc;
+use super::manifest::{ExecutionCondition, GovernanceOperation, ProposalManifest};
+use anyhow::{bail, Result};
 use regex::Regex;
 
 pub struct ProposalValidator;
@@ -40,7 +39,9 @@ impl ProposalValidator {
             bail!("Quorum percentage must be between 1 and 100");
         }
         if let Some(veto) = thresholds.veto_threshold {
-            if veto == 0 { bail!("Veto threshold must be > 0"); }
+            if veto == 0 {
+                bail!("Veto threshold must be > 0");
+            }
         }
         Ok(())
     }
@@ -69,45 +70,78 @@ impl ProposalValidator {
         if operations.len() > 100 {
             bail!("Maximum 100 operations allowed per proposal");
         }
-        
+
         let account_regex = Regex::new(r"^G[A-Z2-7]{55}$").unwrap();
+        let contract_regex = Regex::new(r"^C[A-Z2-7]{55}$").unwrap();
 
         for op in operations {
             match op {
                 GovernanceOperation::Transfer { amount, to, .. } => {
-                    if *amount == 0 { bail!("Transfer amount must be > 0"); }
-                    if !account_regex.is_match(to) { bail!("Invalid account ID format"); }
+                    if *amount == 0 {
+                        bail!("Transfer amount must be > 0");
+                    }
+                    if !account_regex.is_match(to) {
+                        bail!("Invalid account ID format");
+                    }
                 }
                 GovernanceOperation::ChangeThresholds { low, med, high } => {
-                    if low > med || med > high { bail!("Invalid threshold ordering (low <= med <= high)"); }
+                    if low > med || med > high {
+                        bail!("Invalid threshold ordering (low <= med <= high)");
+                    }
                 }
-                GovernanceOperation::Payment { amount, destination, .. } => {
-                    if *amount == 0 { bail!("Payment amount must be > 0"); }
-                    if !account_regex.is_match(destination) { bail!("Invalid account ID format for destination"); }
+                GovernanceOperation::Payment {
+                    amount,
+                    destination,
+                    ..
+                } => {
+                    if *amount == 0 {
+                        bail!("Payment amount must be > 0");
+                    }
+                    if !account_regex.is_match(destination) {
+                        bail!("Invalid account ID format for destination");
+                    }
                 }
-                GovernanceOperation::SetOptions { signer, weight, master_weight } => {
+                GovernanceOperation::SetOptions {
+                    signer,
+                    weight,
+                    master_weight,
+                } => {
                     if let Some(w) = weight {
-                        if *w > 255 { bail!("Signer weight cannot exceed 255"); }
+                        if *w > 255 {
+                            bail!("Signer weight cannot exceed 255");
+                        }
                     }
                     if let Some(m) = master_weight {
-                        if *m > 255 { bail!("Master weight cannot exceed 255"); }
+                        if *m > 255 {
+                            bail!("Master weight cannot exceed 255");
+                        }
                     }
                     if let Some(s) = signer {
-                        if !account_regex.is_match(s) { bail!("Invalid signer account ID format"); }
+                        if !account_regex.is_match(s) {
+                            bail!("Invalid signer account ID format");
+                        }
                     }
                 }
-                GovernanceOperation::CreateAccount { destination, starting_balance } => {
-                    if *starting_balance == 0 { bail!("Starting balance must be > 0"); }
-                    if !account_regex.is_match(destination) { bail!("Invalid destination account ID format"); }
+                GovernanceOperation::CreateAccount {
+                    destination,
+                    starting_balance,
+                } => {
+                    if *starting_balance == 0 {
+                        bail!("Starting balance must be > 0");
+                    }
+                    if !account_regex.is_match(destination) {
+                        bail!("Invalid destination account ID format");
+                    }
                 }
                 GovernanceOperation::InvokeContract { contract_id, .. } => {
-                    let contract_regex = Regex::new(r"^C[A-Z2-7]{55}$").unwrap();
-                    if !contract_regex.is_match(contract_id) { bail!("Invalid contract ID format"); }
+                    if !contract_regex.is_match(contract_id) {
+                        bail!("Invalid contract ID format");
+                    }
                 }
                 _ => {}
             }
         }
-        
+
         Ok(())
     }
 
@@ -132,8 +166,12 @@ impl ProposalValidator {
 
     fn validate_metadata(metadata: &std::collections::HashMap<String, String>) -> Result<()> {
         for (k, v) in metadata {
-            if k.len() > 100 { bail!("Metadata key too long"); }
-            if v.len() > 1000 { bail!("Metadata value too long"); }
+            if k.len() > 100 {
+                bail!("Metadata key too long");
+            }
+            if v.len() > 1000 {
+                bail!("Metadata value too long");
+            }
         }
         Ok(())
     }

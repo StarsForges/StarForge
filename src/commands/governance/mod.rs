@@ -1,7 +1,7 @@
 pub mod cli;
 pub mod core;
 pub mod manifest;
-pub mod validator;
 pub mod storage;
+pub mod validator;
 
-pub use cli::{GovernanceCommands, handle};
+pub use cli::{handle, GovernanceCommands};

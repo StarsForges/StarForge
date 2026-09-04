@@ -1,10 +1,10 @@
+use super::core::{ApprovalAttestation, ProposalStatus, SignerInfo};
 use super::manifest::ProposalManifest;
-use super::core::{ProposalStatus, ApprovalAttestation, SignerInfo};
+use anyhow::{bail, Context, Result};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use anyhow::{Result, Context, bail};
-use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]
 pub struct StateSnapshot {
@@ -38,16 +38,16 @@ impl GovernanceStorage {
         if !self.data_dir.exists() {
             fs::create_dir_all(&self.data_dir).context("Failed to create data directory")?;
         }
-        
+
         let file_path = self.data_dir.join("governance_state.json");
         let json = serde_json::to_string_pretty(snapshot).context("Failed to serialize state")?;
-        
+
         fs::write(&file_path, json).context("Failed to write state file")?;
-        
+
         // Also save a backup
         let backup_path = self.data_dir.join("governance_state.backup.json");
         fs::copy(&file_path, &backup_path).context("Failed to create backup")?;
-        
+
         // Write metadata
         let metadata = StorageMetadata {
             last_updated: chrono::Utc::now(),
@@ -63,7 +63,7 @@ impl GovernanceStorage {
 
     pub fn load_state(&self) -> Result<StateSnapshot> {
         let file_path = self.data_dir.join("governance_state.json");
-        
+
         if !file_path.exists() {
             return Ok(StateSnapshot {
                 version: 1,
@@ -74,10 +74,11 @@ impl GovernanceStorage {
                 superseded_by: HashMap::new(),
             });
         }
-        
+
         let json = fs::read_to_string(&file_path).context("Failed to read state file")?;
-        let snapshot: StateSnapshot = serde_json::from_str(&json).context("Failed to deserialize state")?;
-        
+        let snapshot: StateSnapshot =
+            serde_json::from_str(&json).context("Failed to deserialize state")?;
+
         Ok(snapshot)
     }
 
@@ -107,7 +108,7 @@ impl GovernanceStorage {
         }
         Ok(())
     }
-    
+
     pub fn get_storage_size(&self) -> Result<u64> {
         let mut total = 0;
         if !self.data_dir.exists() {
@@ -122,13 +123,13 @@ impl GovernanceStorage {
         }
         Ok(total)
     }
-    
+
     pub fn list_receipts(&self) -> Result<Vec<String>> {
         let receipts_dir = self.data_dir.join("receipts");
         if !receipts_dir.exists() {
             return Ok(vec![]);
         }
-        
+
         let mut receipts = Vec::new();
         for entry in fs::read_dir(receipts_dir)? {
             let entry = entry?;
