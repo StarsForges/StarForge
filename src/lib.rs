@@ -11,6 +11,7 @@ pub mod commands;
 pub mod compatibility;
 pub mod interop;
 pub mod plugins;
+pub mod sep31;
 pub mod signer_rotation;
 pub mod token;
 pub mod utils;
