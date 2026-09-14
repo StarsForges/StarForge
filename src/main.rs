@@ -180,6 +180,10 @@ enum Commands {
     #[command(subcommand)]
     Governance(commands::governance::GovernanceCommands),
 
+    /// Privacy-safe RPC traffic recording, redaction, and deterministic replay
+    #[command(subcommand)]
+    Rpc(commands::rpc::RpcCommands),
+
     /// Execute an installed plugin command (e.g. `starforge defi ...`)
     #[command(external_subcommand)]
     External(Vec<String>),
@@ -216,7 +220,8 @@ fn main() {
         || matches!(&cli.command, Commands::Ai(args) if args.is_machine_readable())
         || matches!(&cli.command, Commands::Compatibility(cmd) if commands::compatibility::is_machine_readable(cmd))
         || matches!(&cli.command, Commands::Interop(cmd) if commands::interop::is_machine_readable(cmd))
-        || matches!(&cli.command, Commands::Token(cmd) if commands::token::is_machine_readable(cmd));
+        || matches!(&cli.command, Commands::Token(cmd) if commands::token::is_machine_readable(cmd))
+        || matches!(&cli.command, Commands::Rpc(cmd) if commands::rpc::is_machine_readable(cmd));
 
     // Initialise structured logging before anything else runs.
     let log_cfg =
@@ -284,6 +289,7 @@ fn main() {
         Commands::Interop(_) => "interop",
         Commands::Token(_) => "token",
         Commands::Governance(_) => "governance",
+        Commands::Rpc(_) => "rpc",
         Commands::External(_) => "external",
     }
     .to_string();
@@ -338,6 +344,7 @@ fn main() {
         Commands::Interop(cmd) => commands::interop::handle(cmd),
         Commands::Token(cmd) => commands::token::handle(cmd),
         Commands::Governance(cmd) => commands::governance::handle(cmd),
+        Commands::Rpc(cmd) => commands::rpc::handle(cmd),
         Commands::External(args) => handle_external_plugin(args),
     };
     let duration = start.elapsed();

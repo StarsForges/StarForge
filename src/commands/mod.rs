@@ -31,6 +31,7 @@ pub mod plugin;
 pub mod profile;
 pub mod query;
 pub mod release;
+pub mod rpc;
 pub mod sep;
 pub mod shell;
 pub mod telemetry;
