@@ -99,6 +99,9 @@ cleanup() {
     if [ -n "${ROTATION_TMP:-}" ] && [ -d "$ROTATION_TMP" ]; then
         rm -rf "$ROTATION_TMP"
     fi
+    if [ -n "${RPC_TMP:-}" ] && [ -d "$RPC_TMP" ]; then
+        rm -rf "$RPC_TMP"
+    fi
 }
 
 trap cleanup EXIT
@@ -311,6 +314,83 @@ run_test "notify dead-letter list" "$STARFORGE notify dead-letter list"
 
 # Test: notify routes remove
 run_test "notify routes remove" "$STARFORGE notify routes remove $TEST_ROUTE_NAME"
+
+echo ""
+echo -e "${BLUE}──────────────────────────────────────────────────────${NC}"
+echo -e "${BLUE}9. RPC Recording & Replay Command Tests${NC}"
+echo -e "${BLUE}──────────────────────────────────────────────────────${NC}"
+echo ""
+
+RPC_TMP=$(mktemp -d)
+# Create a valid test recording fixture
+cat > "$RPC_TMP/recording.json" <<'EOF'
+{
+  "schema_version": 1,
+  "session_id": "smoke-rpc-session",
+  "created_at": "2026-09-14T00:00:00Z",
+  "updated_at": "2026-09-14T00:00:00Z",
+  "endpoint": {
+    "upstream_url": "https://soroban-testnet.stellar.org",
+    "protocol": "JSON-RPC 2.0"
+  },
+  "redaction_summary": {
+    "secrets_redacted_count": 0,
+    "signatures_redacted_count": 0,
+    "paths_redacted_count": 0,
+    "accounts_redacted_count": 0,
+    "custom_rules_matched_count": 0
+  },
+  "exchanges": [
+    {
+      "exchange_id": "ex-smoke-001",
+      "sequence_id": 0,
+      "parent_id": null,
+      "timing": {
+        "started_at_ms": 1700000000000,
+        "completed_at_ms": 1700000000030,
+        "duration_ms": 30
+      },
+      "request": {
+        "method": "POST",
+        "path": "/",
+        "headers": {},
+        "jsonrpc_method": "getHealth",
+        "jsonrpc_id": 1,
+        "params": []
+      },
+      "response": {
+        "status_code": 200,
+        "headers": {},
+        "body": {
+          "jsonrpc": "2.0",
+          "id": 1,
+          "result": { "status": "healthy" }
+        },
+        "is_error": false
+      },
+      "exchange_digest": "b4e8391ade82073cfa105c79efe9e5cae0e9ac45e26da8a30822d6752f1c9dd1"
+    }
+  ],
+  "session_digest": "eb95df03490b07f60153dd3b81b78fb4ef4b04fdae73f972e0ce71a728fe349e"
+}
+EOF
+chmod 0600 "$RPC_TMP/recording.json"
+
+run_test_with_output "rpc inspect (json)" \
+    "$STARFORGE rpc inspect --file $RPC_TMP/recording.json --json" \
+    '"schema_version": 1'
+
+run_test "rpc inspect (detailed)" \
+    "$STARFORGE rpc inspect --file $RPC_TMP/recording.json --detailed"
+
+run_test "rpc sanitize" \
+    "$STARFORGE rpc sanitize --input $RPC_TMP/recording.json --output $RPC_TMP/sanitized.json --account-strategy mask --json"
+
+run_test_with_output "rpc verify (passes)" \
+    "$STARFORGE rpc verify --file $RPC_TMP/recording.json --json" \
+    '"is_valid": true'
+
+rm -rf "$RPC_TMP"
 
 echo ""
 echo -e "${BLUE}═══════════════════════════════════════════════════════${NC}"

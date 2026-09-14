@@ -23,6 +23,7 @@ pub mod print;
 pub mod profiler;
 pub mod release;
 pub mod repl;
+pub mod rpc_recording;
 pub mod sandbox;
 pub mod security_training;
 pub mod soroban;
