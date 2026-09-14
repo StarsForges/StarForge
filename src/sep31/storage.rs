@@ -20,8 +20,9 @@ pub struct Sep31StateStore {
 impl Sep31StateStore {
     pub fn new(root: impl Into<PathBuf>) -> Result<Self> {
         let root = root.into();
-        fs::create_dir_all(&root)
-            .with_context(|| format!("failed to create SEP-31 state directory {}", root.display()))?;
+        fs::create_dir_all(&root).with_context(|| {
+            format!("failed to create SEP-31 state directory {}", root.display())
+        })?;
         restrict_directory_permissions(&root)?;
         Ok(Self { root })
     }
@@ -43,12 +44,21 @@ impl Sep31StateStore {
             saved_at: chrono::Utc::now(),
             transaction: transaction.clone(),
         };
-        let bytes = serde_json::to_vec_pretty(&document).context("failed to serialize SEP-31 state")?;
-        fs::write(&temporary, bytes)
-            .with_context(|| format!("failed to write temporary SEP-31 state {}", temporary.display()))?;
+        let bytes =
+            serde_json::to_vec_pretty(&document).context("failed to serialize SEP-31 state")?;
+        fs::write(&temporary, bytes).with_context(|| {
+            format!(
+                "failed to write temporary SEP-31 state {}",
+                temporary.display()
+            )
+        })?;
         restrict_file_permissions(&temporary)?;
-        fs::rename(&temporary, &path)
-            .with_context(|| format!("failed to atomically persist SEP-31 state {}", path.display()))?;
+        fs::rename(&temporary, &path).with_context(|| {
+            format!(
+                "failed to atomically persist SEP-31 state {}",
+                path.display()
+            )
+        })?;
         Ok(path)
     }
 
@@ -70,22 +80,31 @@ impl Sep31StateStore {
 
     pub fn list(&self) -> Result<Vec<Sep31Transaction>> {
         let mut transactions = Vec::new();
-        for entry in fs::read_dir(&self.root)
-            .with_context(|| format!("failed to list SEP-31 state directory {}", self.root.display()))?
-        {
+        for entry in fs::read_dir(&self.root).with_context(|| {
+            format!(
+                "failed to list SEP-31 state directory {}",
+                self.root.display()
+            )
+        })? {
             let entry = entry?;
             if entry.path().extension().and_then(|value| value.to_str()) != Some("json") {
                 continue;
             }
             let bytes = fs::read(entry.path())?;
-            let document: StoredSep31Transaction = serde_json::from_slice(&bytes)
-                .with_context(|| format!("invalid SEP-31 state document {}", entry.path().display()))?;
+            let document: StoredSep31Transaction =
+                serde_json::from_slice(&bytes).with_context(|| {
+                    format!("invalid SEP-31 state document {}", entry.path().display())
+                })?;
             if document.schema_version == SEP31_STATE_SCHEMA_VERSION {
                 document.transaction.validate()?;
                 transactions.push(document.transaction);
             }
         }
-        transactions.sort_by(|a, b| b.updated_at.cmp(&a.updated_at).then_with(|| a.id.cmp(&b.id)));
+        transactions.sort_by(|a, b| {
+            b.updated_at
+                .cmp(&a.updated_at)
+                .then_with(|| a.id.cmp(&b.id))
+        });
         Ok(transactions)
     }
 

@@ -19,7 +19,11 @@ impl Amount {
             || whole.is_empty()
             || !whole.bytes().all(|byte| byte.is_ascii_digit())
             || fractional
-                .map(|part| part.is_empty() || part.len() > 7 || !part.bytes().all(|byte| byte.is_ascii_digit()))
+                .map(|part| {
+                    part.is_empty()
+                        || part.len() > 7
+                        || !part.bytes().all(|byte| byte.is_ascii_digit())
+                })
                 .unwrap_or(false)
         {
             bail!("amount must be a positive decimal string with at most 7 fractional digits");
@@ -57,7 +61,8 @@ impl Asset {
     pub fn credit(code: impl Into<String>, issuer: impl Into<String>) -> Result<Self> {
         let code = code.into();
         let issuer = issuer.into();
-        if !(1..=12).contains(&code.len()) || !code.bytes().all(|byte| byte.is_ascii_alphanumeric()) {
+        if !(1..=12).contains(&code.len()) || !code.bytes().all(|byte| byte.is_ascii_alphanumeric())
+        {
             bail!("asset code must contain 1 to 12 ASCII alphanumeric characters");
         }
         if !is_stellar_public_key(&issuer) {
@@ -78,7 +83,9 @@ impl Asset {
         }
         Self::credit(
             self.code.clone(),
-            self.issuer.clone().context("credit asset requires an issuer")?,
+            self.issuer
+                .clone()
+                .context("credit asset requires an issuer")?,
         )?;
         Ok(())
     }
@@ -216,7 +223,10 @@ pub enum Sep31Status {
 
 impl Sep31Status {
     pub fn is_terminal(self) -> bool {
-        matches!(self, Self::Completed | Self::Refunded | Self::Expired | Self::Error)
+        matches!(
+            self,
+            Self::Completed | Self::Refunded | Self::Expired | Self::Error
+        )
     }
 }
 
@@ -252,7 +262,10 @@ pub struct Sep31Transaction {
 impl Sep31Transaction {
     pub fn validate(&self) -> Result<()> {
         if self.schema_version != SEP31_STATE_SCHEMA_VERSION {
-            bail!("unsupported SEP-31 state schema version {}", self.schema_version);
+            bail!(
+                "unsupported SEP-31 state schema version {}",
+                self.schema_version
+            );
         }
         if self.id.trim().is_empty() {
             bail!("transaction id is required");
@@ -278,18 +291,26 @@ pub struct Sep31UpdateRequest {
 pub fn is_stellar_public_key(value: &str) -> bool {
     value.len() == 56
         && value.starts_with('G')
-        && value.bytes().all(|byte| byte.is_ascii_uppercase() || (b'2'..=b'7').contains(&byte))
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_uppercase() || (b'2'..=b'7').contains(&byte))
 }
 
 fn validate_memo_pair(memo: Option<&str>, memo_type: Option<&MemoType>) -> Result<()> {
     match (memo, memo_type) {
         (None, None) => Ok(()),
-        (Some(value), Some(MemoType::Text)) if value.as_bytes().len() <= 28 => Ok(()),
+        (Some(value), Some(MemoType::Text)) if value.len() <= 28 => Ok(()),
         (Some(value), Some(MemoType::Id)) if value.parse::<u64>().is_ok() => Ok(()),
-        (Some(value), Some(MemoType::Hash)) if value.len() == 64 && value.bytes().all(|b| b.is_ascii_hexdigit()) => Ok(()),
+        (Some(value), Some(MemoType::Hash))
+            if value.len() == 64 && value.bytes().all(|b| b.is_ascii_hexdigit()) =>
+        {
+            Ok(())
+        }
         (Some(_), None) | (None, Some(_)) => bail!("memo and memo type must be provided together"),
         (Some(_), Some(MemoType::Text)) => bail!("text memo cannot exceed 28 bytes"),
         (Some(_), Some(MemoType::Id)) => bail!("id memo must be an unsigned 64-bit integer"),
-        (Some(_), Some(MemoType::Hash)) => bail!("hash memo must be 32 bytes encoded as hexadecimal"),
+        (Some(_), Some(MemoType::Hash)) => {
+            bail!("hash memo must be 32 bytes encoded as hexadecimal")
+        }
     }
 }

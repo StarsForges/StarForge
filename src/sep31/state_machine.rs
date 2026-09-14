@@ -36,7 +36,11 @@ pub fn can_transition(from: Sep31Status, to: Sep31Status) -> bool {
 
 pub fn validate_transition(from: Sep31Status, to: Sep31Status) -> Result<TransitionDecision> {
     if !can_transition(from, to) {
-        bail!("invalid SEP-31 status transition from {:?} to {:?}", from, to);
+        bail!(
+            "invalid SEP-31 status transition from {:?} to {:?}",
+            from,
+            to
+        );
     }
     Ok(TransitionDecision {
         from,
