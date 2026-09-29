@@ -102,7 +102,11 @@ pub struct TransportFailure {
 }
 
 impl TransportFailure {
-    pub fn classify(status_code: Option<u16>, code: impl Into<String>, message: impl Into<String>) -> Self {
+    pub fn classify(
+        status_code: Option<u16>,
+        code: impl Into<String>,
+        message: impl Into<String>,
+    ) -> Self {
         let retry_class = match status_code {
             Some(401 | 403) => RetryClass::AuthenticationRequired,
             Some(408 | 425 | 429 | 500 | 502 | 503 | 504) | None => RetryClass::Retryable,

@@ -8,8 +8,9 @@
 )]
 
 mod commands;
-pub use starforge::{compatibility, interop, plugins, token};
+pub use starforge::{compatibility, interop, plugins, sep10, token};
 mod signer_rotation;
+
 mod utils;
 
 use anyhow::Context;
@@ -180,6 +181,10 @@ enum Commands {
     #[command(subcommand)]
     Governance(commands::governance::GovernanceCommands),
 
+    /// Stellar Ecosystem Proposals (SEP-10 Web Auth, SEP-24 Hosted Deposit, etc.)
+    #[command(subcommand)]
+    Sep(commands::sep::SepCommands),
+
     /// Execute an installed plugin command (e.g. `starforge defi ...`)
     #[command(external_subcommand)]
     External(Vec<String>),
@@ -284,6 +289,7 @@ fn main() {
         Commands::Interop(_) => "interop",
         Commands::Token(_) => "token",
         Commands::Governance(_) => "governance",
+        Commands::Sep(_) => "sep",
         Commands::External(_) => "external",
     }
     .to_string();
@@ -338,6 +344,7 @@ fn main() {
         Commands::Interop(cmd) => commands::interop::handle(cmd),
         Commands::Token(cmd) => commands::token::handle(cmd),
         Commands::Governance(cmd) => commands::governance::handle(cmd),
+        Commands::Sep(cmd) => commands::sep::handle(cmd),
         Commands::External(args) => handle_external_plugin(args),
     };
     let duration = start.elapsed();

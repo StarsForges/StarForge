@@ -1,29 +1,21 @@
+use crate::sep10::{
+    ChallengeValidationConfig, EncryptedTokenStore, Sep10Client, Sep10Doctor, Sep10Validator,
+};
+
 use crate::utils::{config, crypto, print as p, stellar_toml};
 use anyhow::{Context, Result};
-use base64::Engine;
-use clap::Subcommand;
-use ed25519_dalek::{Signer, SigningKey};
-use sha2::{Digest, Sha256};
+use clap::{Args, Subcommand};
+use colored::*;
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
-use stellar_strkey::ed25519::PrivateKey as StellarPrivateKey;
-use stellar_xdr::curr::{
-    BytesM, DecoratedSignature, Limits, OperationBody, Preconditions, ReadXdr,
-    Signature as XdrSignature, SignatureHint, TransactionEnvelope, WriteXdr,
-};
 
-#[derive(Subcommand)]
+#[derive(Subcommand, Debug)]
 pub enum SepCommands {
-    /// SEP-10 Web Authentication — get a JWT from an anchor
-    Auth {
-        /// Anchor domain (e.g. testanchor.stellar.org)
-        #[arg(long)]
-        anchor: String,
-        /// Name of the local wallet to authenticate with
-        #[arg(long)]
-        wallet: String,
-    },
+    /// SEP-10 Web Authentication suite (login, inspect, verify, list, revoke, doctor)
+    #[command(name = "auth")]
+    Auth(SepAuthArgs),
+
     /// SEP-24 Hosted Deposit — initiate an interactive deposit with an anchor
     Deposit {
         /// Anchor domain (e.g. testanchor.stellar.org)
@@ -41,9 +33,117 @@ pub enum SepCommands {
     },
 }
 
+#[derive(Args, Debug)]
+pub struct SepAuthArgs {
+    /// Action subcommand (inspect, verify, list, revoke, doctor, login)
+    #[command(subcommand)]
+    pub action: Option<Sep10Subcommands>,
+
+    /// Anchor domain (e.g. testanchor.stellar.org) - used when running direct auth
+    #[arg(long)]
+    pub anchor: Option<String>,
+
+    /// Name of the local wallet to authenticate with - used when running direct auth
+    #[arg(long)]
+    pub wallet: Option<String>,
+
+    /// Optional client domain for client attribution
+    #[arg(long)]
+    pub client_domain: Option<String>,
+
+    /// Force re-authentication even if active token is cached
+    #[arg(long)]
+    pub force: bool,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum Sep10Subcommands {
+    /// Authenticate against an anchor and store encrypted session token
+    Login {
+        /// Anchor domain (e.g. testanchor.stellar.org)
+        #[arg(long)]
+        anchor: String,
+        /// Name of the local wallet to authenticate with
+        #[arg(long)]
+        wallet: String,
+        /// Optional client domain for attribution
+        #[arg(long)]
+        client_domain: Option<String>,
+        /// Force re-authentication even if an active token is cached
+        #[arg(long)]
+        force: bool,
+    },
+    /// Inspect a challenge transaction XDR without signing or submitting
+    Inspect {
+        /// Challenge transaction envelope as base64 XDR
+        #[arg(long)]
+        challenge: String,
+        /// Anchor server public key (G...)
+        #[arg(long)]
+        server_key: String,
+        /// Client account public key (G...)
+        #[arg(long)]
+        client_account: String,
+        /// Network passphrase
+        #[arg(long, default_value = "Test SDF Network ; September 2015")]
+        network: String,
+        /// Output formatted JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Verify a challenge transaction XDR against full validation rules
+    Verify {
+        /// Challenge transaction envelope as base64 XDR
+        #[arg(long)]
+        challenge: String,
+        /// Anchor server public key (G...)
+        #[arg(long)]
+        server_key: String,
+        /// Client account public key (G...)
+        #[arg(long)]
+        client_account: String,
+        /// Expected home domain
+        #[arg(long)]
+        home_domain: Option<String>,
+        /// Expected web auth domain
+        #[arg(long)]
+        web_auth_domain: Option<String>,
+        /// Network passphrase
+        #[arg(long, default_value = "Test SDF Network ; September 2015")]
+        network: String,
+        /// Output formatted JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// List active and cached SEP-10 sessions with expiration status
+    List {
+        /// Output formatted JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Revoke and delete stored sessions for an anchor
+    Revoke {
+        /// Anchor domain to revoke
+        #[arg(long)]
+        anchor: String,
+        /// Optional specific account to revoke (if omitted, revokes all for anchor)
+        #[arg(long)]
+        account: Option<String>,
+    },
+    /// Run comprehensive diagnostics on an anchor's SEP-10 service and infrastructure
+    Doctor {
+        /// Anchor domain (e.g. testanchor.stellar.org)
+        #[arg(long)]
+        anchor: String,
+        /// Output formatted JSON
+        #[arg(long)]
+        json: bool,
+    },
+}
+
 pub fn handle(cmd: SepCommands) -> Result<()> {
     match cmd {
-        SepCommands::Auth { anchor, wallet } => sep10_auth(&anchor, &wallet),
+        SepCommands::Auth(args) => handle_auth(args),
         SepCommands::Deposit {
             anchor,
             asset,
@@ -53,12 +153,72 @@ pub fn handle(cmd: SepCommands) -> Result<()> {
     }
 }
 
-// ── SEP-10 ───────────────────────────────────────────────────────────────────
+fn handle_auth(args: SepAuthArgs) -> Result<()> {
+    match args.action {
+        Some(Sep10Subcommands::Login {
+            anchor,
+            wallet,
+            client_domain,
+            force,
+        }) => sep10_auth(&anchor, &wallet, client_domain.as_deref(), force),
 
-fn sep10_auth(anchor: &str, wallet_name: &str) -> Result<()> {
+        Some(Sep10Subcommands::Inspect {
+            challenge,
+            server_key,
+            client_account,
+            network,
+            json,
+        }) => inspect_cmd(&challenge, &server_key, &client_account, &network, json),
+
+        Some(Sep10Subcommands::Verify {
+            challenge,
+            server_key,
+            client_account,
+            home_domain,
+            web_auth_domain,
+            network,
+            json,
+        }) => verify_cmd(
+            &challenge,
+            &server_key,
+            &client_account,
+            home_domain.as_deref(),
+            web_auth_domain.as_deref(),
+            &network,
+            json,
+        ),
+
+        Some(Sep10Subcommands::List { json }) => list_sessions_cmd(json),
+
+        Some(Sep10Subcommands::Revoke { anchor, account }) => {
+            revoke_sessions_cmd(&anchor, account.as_deref())
+        }
+
+        Some(Sep10Subcommands::Doctor { anchor, json }) => doctor_cmd(&anchor, json),
+
+        None => {
+            // Backward-compatible direct `starforge sep auth --anchor <anchor> --wallet <wallet>`
+            let anchor = args.anchor.with_context(|| {
+                "Missing required argument '--anchor'. Usage: starforge sep auth --anchor <anchor> --wallet <wallet>"
+            })?;
+            let wallet = args.wallet.with_context(|| {
+                "Missing required argument '--wallet'. Usage: starforge sep auth --anchor <anchor> --wallet <wallet>"
+            })?;
+            sep10_auth(&anchor, &wallet, args.client_domain.as_deref(), args.force)
+        }
+    }
+}
+
+// ── SEP-10 Commands ─────────────────────────────────────────────────────────
+
+fn sep10_auth(
+    anchor: &str,
+    wallet_name: &str,
+    client_domain: Option<&str>,
+    force: bool,
+) -> Result<()> {
     p::header("SEP-10 Web Authentication");
 
-    // Load config and find wallet
     let cfg = config::load()?;
     let wallet = cfg
         .wallets
@@ -74,185 +234,276 @@ fn sep10_auth(anchor: &str, wallet_name: &str) -> Result<()> {
 
     p::info(&format!("Authenticating wallet '{}'", wallet_name));
     p::kv("Public Key", &public_key);
+    if let Some(cd) = client_domain {
+        p::kv("Client Domain", cd);
+    }
 
-    // Step 1: Fetch stellar.toml
-    p::step(1, 5, "Fetching stellar.toml...");
-    let toml = stellar_toml::fetch(anchor)
-        .with_context(|| format!("Failed to fetch stellar.toml from anchor '{}'", anchor))?;
-    let web_auth_endpoint = toml.web_auth_endpoint.with_context(|| {
-        format!(
-            "Anchor '{}' does not publish WEB_AUTH_ENDPOINT in stellar.toml",
-            anchor
-        )
-    })?;
-    p::kv("WEB_AUTH_ENDPOINT", &web_auth_endpoint);
+    let sk_str = wallet
+        .secret_key
+        .as_ref()
+        .with_context(|| format!("Wallet '{}' has no secret key stored", wallet_name))?;
 
-    // Step 2: GET challenge
-    p::step(2, 5, "Fetching SEP-10 challenge...");
-    let challenge_url = format!("{}?account={}", web_auth_endpoint, public_key);
-    let challenge_resp = ureq::get(&challenge_url)
-        .call()
-        .with_context(|| format!("Failed to get challenge from {}", web_auth_endpoint))?;
-    let challenge_json: serde_json::Value = challenge_resp
-        .into_json()
-        .context("Failed to parse challenge response as JSON")?;
-
-    let challenge_xdr = challenge_json["transaction"]
-        .as_str()
-        .context("Challenge response missing 'transaction' field")?;
-    let network_passphrase = challenge_json["network_passphrase"]
-        .as_str()
-        .unwrap_or("Test SDF Network ; September 2015");
-
-    // Step 3: Decode and verify the challenge transaction
-    p::step(3, 5, "Verifying challenge transaction...");
-    let xdr_bytes = base64::engine::general_purpose::STANDARD
-        .decode(challenge_xdr)
-        .context("Failed to decode base64 challenge transaction")?;
-    let envelope = TransactionEnvelope::from_xdr(&xdr_bytes, Limits::none())
-        .context("Failed to parse challenge transaction XDR")?;
-
-    // Verify in immutable scope, produce the sig to add
-    let (new_sig, existing_sigs) = {
-        let TransactionEnvelope::Tx(ref tx_v1) = envelope else {
-            anyhow::bail!("Expected TransactionEnvelope::Tx (V1), got a different variant");
-        };
-        let tx = &tx_v1.tx;
-
-        // Verify time bounds are present and not expired
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
-        let max_time = match &tx.cond {
-            Preconditions::Time(tb) => tb.max_time.0,
-            Preconditions::V2(v2) => v2
-                .time_bounds
-                .as_ref()
-                .map(|tb| tb.max_time.0)
-                .with_context(|| "Challenge transaction has no time bounds (required by SEP-10)")?,
-            Preconditions::None => {
-                anyhow::bail!(
-                    "Challenge transaction has no preconditions; time bounds required by SEP-10"
-                );
-            }
-        };
-        if max_time < now {
-            anyhow::bail!(
-                "Challenge transaction has expired (max_time {} < current time {})",
-                max_time,
-                now
-            );
-        }
-
-        // Verify first operation is manage_data with key "<anchor> auth"
-        if tx.operations.is_empty() {
-            anyhow::bail!("Challenge transaction has no operations");
-        }
-        match &tx.operations[0].body {
-            OperationBody::ManageData(md) => {
-                let key = md.data_name.0.to_utf8_string_lossy();
-                let expected = format!("{} auth", anchor);
-                if key != expected {
-                    anyhow::bail!(
-                        "Challenge manage_data key mismatch: expected '{}', got '{}'",
-                        expected,
-                        key
-                    );
-                }
-                match &md.data_value {
-                    Some(dv) if dv.0.len() == 64 => {}
-                    Some(dv) => {
-                        anyhow::bail!("Challenge nonce must be 64 bytes, got {}", dv.0.len())
-                    }
-                    None => anyhow::bail!("Challenge manage_data operation has no data value"),
-                }
-            }
-            _ => anyhow::bail!("First operation in challenge is not a manage_data operation"),
-        }
-
-        // Compute transaction signing hash
-        let network_id: [u8; 32] = Sha256::digest(network_passphrase.as_bytes()).into();
-        let tx_body = tx
-            .to_xdr(Limits::none())
-            .context("Failed to XDR-encode transaction body for signing")?;
-        let mut payload = Vec::with_capacity(36 + tx_body.len());
-        payload.extend_from_slice(&network_id);
-        payload.extend_from_slice(&[0u8, 0, 0, 2]); // ENVELOPE_TYPE_TX = 2
-        payload.extend_from_slice(&tx_body);
-        let hash: [u8; 32] = Sha256::digest(&payload).into();
-
-        // Decrypt wallet secret key and sign
-        let sk_str = wallet
-            .secret_key
-            .as_ref()
-            .with_context(|| format!("Wallet '{}' has no secret key stored", wallet_name))?;
-        let plain_sk = if sk_str.contains(':') {
-            let pwd = crypto::prompt_password(
-                &format!("Enter password for wallet '{}'", wallet_name),
-                false,
-            )?;
-            crypto::decrypt_secret(&pwd, sk_str)
-                .map_err(|_| anyhow::anyhow!("Incorrect password or unable to decrypt wallet"))?
-        } else {
-            sk_str.clone()
-        };
-        let decoded = StellarPrivateKey::from_string(&plain_sk)
-            .context("Failed to parse wallet secret key")?;
-        let signing_key = SigningKey::from_bytes(&decoded.0);
-        let pub_bytes = signing_key.verifying_key().to_bytes();
-        let dalek_sig = signing_key.sign(&hash);
-
-        let hint = SignatureHint([pub_bytes[28], pub_bytes[29], pub_bytes[30], pub_bytes[31]]);
-        let xdr_sig = XdrSignature(
-            BytesM::try_from(dalek_sig.to_bytes().to_vec())
-                .map_err(|_| anyhow::anyhow!("Failed to encode ed25519 signature as XDR bytes"))?,
-        );
-        let new_sig = DecoratedSignature {
-            hint,
-            signature: xdr_sig,
-        };
-        let existing: Vec<DecoratedSignature> = tx_v1.signatures.iter().cloned().collect();
-        (new_sig, existing)
+    let plain_sk = if sk_str.contains(':') {
+        let pwd = crypto::prompt_password(
+            &format!("Enter password for wallet '{}'", wallet_name),
+            false,
+        )?;
+        crypto::decrypt_secret(&pwd, sk_str)
+            .map_err(|_| anyhow::anyhow!("Incorrect password or unable to decrypt wallet"))?
+    } else {
+        sk_str.clone()
     };
 
-    // Rebuild envelope with the added signature
-    let mut envelope = envelope;
-    let TransactionEnvelope::Tx(ref mut tx_v1) = envelope else {
-        unreachable!()
-    };
-    let mut sigs = existing_sigs;
-    sigs.push(new_sig);
-    tx_v1.signatures = sigs
-        .try_into()
-        .map_err(|_| anyhow::anyhow!("Signature count exceeds envelope limit"))?;
+    let client = Sep10Client::new().map_err(|e| anyhow::anyhow!("{e}"))?;
 
-    let xdr_bytes = envelope
-        .to_xdr(Limits::none())
-        .context("Failed to XDR-encode signed transaction")?;
-    let signed_xdr = base64::engine::general_purpose::STANDARD.encode(&xdr_bytes);
-
-    // Step 4: POST signed transaction to get JWT
-    p::step(4, 5, "Submitting signed challenge...");
-    let body = serde_json::to_string(&serde_json::json!({ "transaction": signed_xdr }))?;
-    let token_resp = ureq::post(&web_auth_endpoint)
-        .set("Content-Type", "application/json")
-        .send_string(&body)
-        .with_context(|| format!("Failed to submit signed challenge to {}", web_auth_endpoint))?;
-    let token_json: serde_json::Value = token_resp
-        .into_json()
-        .context("Failed to parse JWT response as JSON")?;
-    let jwt = token_json["token"]
-        .as_str()
-        .context("JWT response missing 'token' field")?;
-
-    // Step 5: Store JWT
-    p::step(5, 5, "Storing JWT...");
-    save_sep10_token(anchor, jwt)?;
+    p::step(
+        1,
+        3,
+        "Executing SEP-10 challenge authentication handshake...",
+    );
+    let session = client
+        .authenticate(anchor, &public_key, &plain_sk, client_domain, force)
+        .map_err(|e| anyhow::anyhow!("Authentication failed: {e}"))?;
 
     p::separator();
-    p::success(&format!("Authenticated with anchor '{}'", anchor));
-    p::kv("JWT stored for", anchor);
+    p::success(&format!(
+        "Authenticated successfully with anchor '{}'",
+        anchor
+    ));
+    p::kv("Session Account", &session.account);
+    p::kv(
+        "Token Expiry",
+        &format!("{}s remaining", session.seconds_until_expiry()),
+    );
+    p::kv(
+        "Encrypted Session Store",
+        "Saved to ~/.starforge/sep10_sessions.enc (mode 0600)",
+    );
+    p::kv("Redacted JWT", &session.redacted_jwt());
+
+    // Also sync with legacy token store for backward compatibility
+    let _ = save_sep10_token(anchor, &session.jwt);
+
+    Ok(())
+}
+
+fn inspect_cmd(
+    challenge: &str,
+    server_key: &str,
+    client_account: &str,
+    network: &str,
+    json_output: bool,
+) -> Result<()> {
+    let report = Sep10Client::inspect_challenge(challenge, server_key, client_account, network)
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    if json_output {
+        println!("{}", serde_json::to_string_pretty(&report.details)?);
+    } else {
+        p::header("SEP-10 Challenge Inspection");
+        p::kv("Server Account", &report.details.server_account);
+        p::kv("Client Account", &report.details.client_account);
+        p::kv(
+            "Sequence Number",
+            &report.details.sequence_number.to_string(),
+        );
+        p::kv("Home Domain", &report.details.home_domain);
+        if let Some(wad) = report.details.web_auth_domain.as_deref() {
+            p::kv("Web Auth Domain", wad);
+        }
+        if let Some(cd) = report.details.client_domain.as_deref() {
+            p::kv("Client Domain", cd);
+        }
+
+        p::kv(
+            "Duration (seconds)",
+            &report.details.duration_secs.to_string(),
+        );
+        p::kv(
+            "Time to Expiry (seconds)",
+            &report.details.time_to_expiry_secs.to_string(),
+        );
+        p::kv(
+            "Server Signature Valid",
+            &report.details.server_signature_valid.to_string(),
+        );
+    }
+    Ok(())
+}
+
+fn verify_cmd(
+    challenge: &str,
+    server_key: &str,
+    client_account: &str,
+    home_domain: Option<&str>,
+    web_auth_domain: Option<&str>,
+    network: &str,
+    json_output: bool,
+) -> Result<()> {
+    let config = ChallengeValidationConfig {
+        expected_home_domain: home_domain.map(|s| s.to_string()),
+        expected_web_auth_domain: web_auth_domain.map(|s| s.to_string()),
+        network_passphrase: network.to_string(),
+        require_web_auth_domain: web_auth_domain.is_some(),
+        ..Default::default()
+    };
+
+    let result = Sep10Validator::validate(challenge, server_key, client_account, &config);
+
+    match result {
+        Ok(report) => {
+            if json_output {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                p::header("SEP-10 Challenge Verification Passed ✅");
+                for check in &report.checks_passed {
+                    println!("  {} {}", "✔".green(), check);
+                }
+                for warn in &report.warnings {
+                    println!("  {} {}", "⚠".yellow(), warn);
+                }
+            }
+            Ok(())
+        }
+        Err(e) => {
+            if json_output {
+                println!(
+                    "{}",
+                    serde_json::json!({
+                        "is_valid": false,
+                        "error": e.to_string()
+                    })
+                );
+            } else {
+                p::header("SEP-10 Challenge Verification Failed ❌");
+                println!("  {} {}", "✖".red(), e);
+            }
+            anyhow::bail!("Challenge validation failed");
+        }
+    }
+}
+
+fn list_sessions_cmd(json_output: bool) -> Result<()> {
+    let store = EncryptedTokenStore::default_store().map_err(|e| anyhow::anyhow!("{e}"))?;
+    let sessions = store.list_sessions().map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    if json_output {
+        let serialized: Vec<serde_json::Value> = sessions
+            .iter()
+            .map(|s| {
+                serde_json::json!({
+                    "anchor_domain": s.anchor_domain,
+                    "account": s.account,
+                    "jwt_redacted": s.redacted_jwt(),
+                    "is_expired": s.is_expired(),
+                    "expires_at": s.expires_at,
+                    "seconds_until_expiry": s.seconds_until_expiry(),
+                    "client_domain": s.client_domain
+                })
+            })
+            .collect();
+        println!("{}", serde_json::to_string_pretty(&serialized)?);
+    } else {
+        p::header("SEP-10 Cached Sessions");
+        if sessions.is_empty() {
+            p::info("No cached SEP-10 sessions found.");
+            return Ok(());
+        }
+
+        for s in sessions {
+            let status = if s.is_expired() {
+                "EXPIRED".red().to_string()
+            } else {
+                format!("ACTIVE ({}s remaining)", s.seconds_until_expiry())
+                    .green()
+                    .to_string()
+            };
+            println!(
+                "• Anchor: {} | Account: {}",
+                s.anchor_domain.bold(),
+                s.account
+            );
+            println!("  Status: {}", status);
+            println!("  Token: {}", s.redacted_jwt().dimmed());
+            println!();
+        }
+    }
+    Ok(())
+}
+
+fn revoke_sessions_cmd(anchor: &str, account: Option<&str>) -> Result<()> {
+    let store = EncryptedTokenStore::default_store().map_err(|e| anyhow::anyhow!("{e}"))?;
+    p::header("SEP-10 Session Revocation");
+
+    if let Some(acc) = account {
+        let removed = store
+            .revoke_session(anchor, acc)
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
+        if removed {
+            p::success(&format!(
+                "Revoked session for anchor '{}' and account '{}'",
+                anchor, acc
+            ));
+        } else {
+            p::warn(&format!(
+                "No active session found for anchor '{}' and account '{}'",
+                anchor, acc
+            ));
+        }
+    } else {
+        let count = store
+            .revoke_anchor(anchor)
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
+        p::success(&format!(
+            "Revoked {} session(s) for anchor '{}'",
+            count, anchor
+        ));
+    }
+
+    // Also remove from legacy file
+    let mut tokens = load_sep10_tokens().unwrap_or_default();
+    if tokens.remove(anchor).is_some() {
+        if let Ok(path) = sep10_tokens_path() {
+            let _ = fs::write(&path, serde_json::to_string_pretty(&tokens)?);
+        }
+    }
+
+    Ok(())
+}
+
+fn doctor_cmd(anchor: &str, json_output: bool) -> Result<()> {
+    let report = Sep10Doctor::diagnose(anchor).map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    if json_output {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+    } else {
+        p::header(&format!("SEP-10 Anchor Diagnostics: {}", anchor));
+        p::kv("stellar.toml URL", &report.toml_url);
+        p::kv("stellar.toml Reachable", &report.toml_fetch_ok.to_string());
+        if let Some(ep) = report.web_auth_endpoint.as_deref() {
+            p::kv("WEB_AUTH_ENDPOINT", ep);
+        }
+        if let Some(sk) = report.signing_key.as_deref() {
+            p::kv("SIGNING_KEY", sk);
+        }
+
+        p::kv("Latency", &format!("{} ms", report.measured_latency_ms));
+        p::kv(
+            "Clock Skew Estimate",
+            &format!("{} s", report.estimated_clock_skew_secs),
+        );
+
+        if report.issues_found.is_empty() {
+            p::separator();
+            p::success("All SEP-10 infrastructure checks passed! Anchor is healthy.");
+        } else {
+            p::separator();
+            p::warn("Issues identified with anchor:");
+            for issue in &report.issues_found {
+                println!("  {} {}", "•".yellow(), issue);
+            }
+        }
+    }
     Ok(())
 }
 
@@ -278,18 +529,31 @@ fn sep24_deposit(anchor: &str, asset: &str, amount: f64, wallet_name: &str) -> R
 
     // Step 1: Ensure we have a SEP-10 JWT
     p::step(1, 4, "Getting SEP-10 authentication token...");
-    let tokens = load_sep10_tokens()?;
-    let jwt = if let Some(token) = tokens.get(anchor) {
-        p::info("Using stored SEP-10 token");
-        token.clone()
+    let store = EncryptedTokenStore::default_store().ok();
+    let jwt_opt = store.and_then(|s| {
+        s.get_session(anchor, &public_key)
+            .ok()
+            .flatten()
+            .map(|st| st.jwt)
+    });
+
+    let jwt = if let Some(t) = jwt_opt {
+        p::info("Using active encrypted SEP-10 token");
+        t
     } else {
-        p::info("No stored token found — running SEP-10 auth first...");
-        sep10_auth(anchor, wallet_name)?;
-        let refreshed = load_sep10_tokens()?;
-        refreshed
-            .get(anchor)
-            .cloned()
-            .context("SEP-10 auth succeeded but token was not stored")?
+        let legacy_tokens = load_sep10_tokens()?;
+        if let Some(token) = legacy_tokens.get(anchor) {
+            p::info("Using stored legacy SEP-10 token");
+            token.clone()
+        } else {
+            p::info("No stored token found — running SEP-10 auth first...");
+            sep10_auth(anchor, wallet_name, None, false)?;
+            let refreshed = load_sep10_tokens()?;
+            refreshed
+                .get(anchor)
+                .cloned()
+                .context("SEP-10 auth succeeded but token was not stored")?
+        }
     };
 
     // Step 2: Get TRANSFER_SERVER_SEP0024 from stellar.toml
